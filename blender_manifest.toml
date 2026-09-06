@@ -1,0 +1,23 @@
+schema_version = "1.0.0"
+
+id = "key_hint"
+version = "1.0.0"
+name = "Key Hint"
+tagline = "Flowkeys-style shortcut reference synced to your keymap"
+maintainer = "Noct2vis <rv24726@bristol.ac.uk>"
+
+type = "add-on"
+
+blender_version_min = "4.2.0"
+blender_version_max = "5.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+# Tags are matched against Blender's own tag lists when publishing to
+# extensions.blender.org (see the extension build/validate docs).
+tags = ["3D View"]
+
+website = "https://github.com/Noct2vis/key_hint"
+
+# Runtime dependencies of this add-on.
+python_version = ""
