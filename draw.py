@@ -196,10 +196,11 @@ def draw_hud(region, prefs, payload):
         panel_w = max(panel_w, _tw(fid, combo + "  " + label, font))
     panel_w += pad * 2 + lock_w
 
-    # Title bar height: fit the actual title/lock text height + padding, so
-    # the title never overlaps the content below it.
+    # Title bar height: measured from the actual title/lock glyph height,
+    # plus generous vertical padding so the title text never clips or touches
+    # the content below.
     small_h = max(_th(fid, title_text, small), _th(fid, lock_text, small))
-    title_h = small_h + 12.0
+    title_h = small_h + 20.0
 
     usable = region.height - my - 24
     line_px = line_h + 2.0
@@ -239,7 +240,7 @@ def draw_hud(region, prefs, payload):
     _draw_text(fid, lock_x, title_ty, lock_text, (0.0, 0.0, 0.0, 1.0), small)
 
     # Body lines (below the title bar, with a clear gap).
-    y = title_y - 4.0
+    y = title_y - 8.0
     for combo, label in body:
         _draw_text(fid, x0 + pad, y, combo, text_color, font)
         _draw_text(fid, x0 + pad + panel_w * 0.42, y, label, text_color, font)

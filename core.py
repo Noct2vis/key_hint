@@ -357,35 +357,38 @@ class KeyHintWatchOperator(bpy.types.Operator):
         global _dragging, _drag_dx, _drag_dy
         if prefs is None:
             return
-        x = getattr(event, "mouse_region_x", None)
-        y = getattr(event, "mouse_region_y", None)
-        if x is None or y is None:
-            return
-
         evt_type = getattr(event, "type", None)
         value = getattr(event, "value", None)
         region = getattr(context, "region", None)
         if region is None:
             return
 
-        # region-local y with origin at BOTTOM (same as draw).
-        y_bottom_up = region.height - y
+        # Use WINDOW coords (origin bottom-left, y up) minus the region's
+        # window offset -> region-local coords identical to the draw space.
+        # (mouse_region_x/y has a different origin direction and is unreliable
+        #  for hit-testing against the drawn rects.)
+        mx = getattr(event, "mouse_x", None)
+        my = getattr(event, "mouse_y", None)
+        if mx is None or my is None:
+            return
+        x = mx - region.x
+        y = my - region.y
 
         if evt_type == "LEFTMOUSE" and value == "PRESS":
             # 1) Lock/unlock icon (right end of the title bar)?
             lx, ly, lw, lh = hud_draw.hud_lock_rect
             if lw > 0 and lh > 0 and lx <= x <= lx + lw and \
-                    ly <= y_bottom_up <= ly + lh:
+                    ly <= y <= ly + lh:
                 prefs.hud_locked = not prefs.hud_locked
                 return
             # 2) Drag title bar (only when unlocked).
             if not prefs.hud_locked:
                 tx, ty, tw, th = hud_draw.hud_title_rect
                 if tw > 0 and th > 0 and tx <= x <= tx + tw and \
-                        ty <= y_bottom_up <= ty + th:
+                        ty <= y <= ty + th:
                     _dragging = True
                     _drag_dx = x - tx
-                    _drag_dy = y_bottom_up - ty
+                    _drag_dy = y - ty
         elif evt_type == "LEFTMOUSE" and value == "RELEASE":
             _dragging = False
         elif evt_type == "MOUSEMOVE" and _dragging and not prefs.hud_locked:
@@ -394,7 +397,7 @@ class KeyHintWatchOperator(bpy.types.Operator):
             if tw <= 0 or pw <= 0:
                 return
             new_tx = x - _drag_dx
-            new_ty = y_bottom_up - _drag_dy
+            new_ty = y - _drag_dy
             title_to_bottom = ty - py
             new_py = new_ty - title_to_bottom
             new_px = new_tx - (tx - px)
