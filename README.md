@@ -1,30 +1,20 @@
 # Key Hint
 
-一个为 Blender 打造的开源插件：像游戏一样，**按住 Ctrl / Shift / Alt**，就能看到当前模式下以该修饰键开头的**真实快捷键**列表。
+一个为 Blender 打造的开源插件（Flowkeys 风格）：在**侧边栏（N 面板）**和
+**3D 视口 HUD** 中以分类列表展示**当前模式下的快捷键**。
 
-例如按住 `Ctrl`，画面角落会浮现类似下面的 HUD：
-
-```
-Ctrl + A     应用全部变换
-Ctrl + C     复制对象
-Ctrl + X     剪切
-Ctrl + Shift + A  添加物体
-...
-```
-
-它读的是你**正在使用的真实键位配置**（`keyconfigs.active` / `user`），而不是一份写死的清单——所以连你自己自定义过的快捷键也会被正确列出来。
+它读的是你**正在使用的真实键位配置**（`keyconfigs.active` / `user`），所以你自己
+改过的快捷键会如实显示，并用 **✱** 标记为“自定义键位”。
 
 ## 特性
 
-- **常驻基础快捷键参考**：在 3D 视口角落始终显示当前模式的无修饰键快捷键，
-  例如 Object 模式下列出 `G  移动`、`R  旋转`、`S  缩放` 等；切换模式会自动跟随。
-- **按住修饰键追加显示**：按住 `Ctrl`/`Shift`/`Alt` 时，在下方**追加**以该修饰键
-  开头的快捷键（基础表始终保留）。
-- **读取你真实的键位配置**：显示内容来自你正在使用的 `keyconfigs.active`/`user`，
-  自己改过的快捷键会正确反映；不是写死的清单。
-- **完全非侵入**：通过 `PASS_THROUGH` 被动监听，**绝不吞掉任何快捷键**，照常操作。
-- 干净的面向 3D 视口的 HUD，多列自动换行，字体/透明度/偏移/强调色可调。
-- 开源 (GPL)，纯 Blender Python，无第三方运行期依赖。
+- **侧边栏参考面板**（`N → Key Hint`）：按分类（Transform / View / Mesh / Sculpt…）
+  展示当前模式的快捷键，切换模式自动跟随。
+- **即时搜索**：在面板顶部搜索框按名称或按键过滤。
+- **自定义键位标记 ✱**：读 `keyconfigs` 解析真实键位，与内置默认键不同时打 ✱。
+- **个人笔记**：可为每条快捷键加备注，保存在当前 `.blend` 文件（随文件持久化）。
+- **3D 视口 HUD**：可选，在 3D 视口角落常驻显示同一份参考列表。
+- 开源 (GPL-3.0)，纯 Blender Python，无第三方运行期依赖。
 
 ## 安装
 
@@ -35,14 +25,24 @@ Ctrl + Shift + A  添加物体
 
 ## 使用
 
-- 默认 **自动开启**（Preferences → Add-ons → Key Hint → “Auto start with
-  Blender”）。启用插件后，若处于 3D 视口，左上角会**始终显示**当前模式的基础
-  快捷键表（Object 模式会看到 `G/R/S` 等）。——**看到这张表就说明插件在运行**。
-- 内容会**跟随当前模式**：切到 Edit / Sculpt / Pose 等会自动刷新成对应模式的快捷键。
-- 按住 `Ctrl`/`Shift`/`Alt` 时，会在这张表下方**追加**以该修饰键开头的快捷键；
-  松开即隐藏追加部分（基础表一直在）。
-- 若没有自动出现，可在 **3D 视口侧边栏 (`N`) → Key Hint** 面板手动勾选
-  “Enabled”，或 `Space` 搜索运行 `key_hint.capture` 手动启动。
+- 默认 **自动开启**（Preferences → Add-ons → Key Hint → “Auto start with Blender”）。
+- **侧边栏**：`N` → **Key Hint** 面板，顶部搜索框即时过滤，下面按分类列出快捷键；
+  每条快捷键右侧的铅笔图标可添加/编辑个人笔记。
+- **HUD**：可选（偏好里的 “Show HUD in 3D viewport”），在 3D 视口左上角常驻显示。
+- 若没有自动开启，可在面板勾选 “Enabled”，或 `Space` 搜索运行 `key_hint.capture`。
+
+## 诊断
+
+在 Blender Python Console（或 Text Editor）运行：
+
+```python
+import sys
+sys.path.insert(0, r"D:/blender")        # key_hint 文件夹的上一级
+import key_hint.tests.diagnose as d
+d.run()
+```
+
+会打印模式、keyconfig、快捷键解析数量、HUD 句柄等，方便定位“不显示”的问题。
 - 可调节项（`Preferences → Add-ons → Key Hint`）：
   - 随 Blender 启动自动开启
   - 是否常驻显示基础快捷键表（show fundamentals）

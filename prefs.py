@@ -60,6 +60,12 @@ class KeyHintAddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    show_hud: BoolProperty(
+        name="Show HUD in 3D viewport",
+        description="Draw the shortcut reference overlay in the 3D viewport",
+        default=True,
+    )
+
     show_hints: BoolProperty(
         name="Append modifier group while held",
         description=(
@@ -140,6 +146,7 @@ class KeyHintAddonPreferences(bpy.types.AddonPreferences):
 
         col.label(text="Display")
         col.prop(self, "show_fundamentals")
+        col.prop(self, "show_hud")
         col.prop(self, "show_hints")
         col.prop(self, "show_pressed_keys")
         col.prop(self, "max_hints")

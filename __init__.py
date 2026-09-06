@@ -15,44 +15,44 @@
 # ##### END GPL LICENSE BLOCK #####
 
 """
-Key Hint - game-style dynamic shortcut hints for Blender.
+Key Hint - Flowkeys-style shortcut reference for Blender.
 
-While you hold a modifier key (Ctrl / Shift / Alt / OS-key) in the 3D
-Viewport, Key Hint scans your *actual* active keymap configuration and draws a
-small game-like HUD listing the real shortcuts that start with the modifier
-you are holding (e.g. holding Ctrl shows "Ctrl + X -> Delete", ...).
+Two surfaces share one shortcut engine (constants.py + keymap resolution):
+  * a sidebar N-panel (panels.py) with categories, instant search, a custom-
+    binding marker (✱) and per-shortcut notes stored in the .blend;
+  * an optional always-on HUD in the 3D viewport (draw.py).
 
-It also keeps a lightweight, non-destructive display of the keys you are
-pressing.  Key Hint never eats the input it observes: it runs as a passive
-PASS_THROUGH modal handler, so every shortcut keeps working exactly as before.
+Both read the user's *real* keyconfig (bpy.context.window_manager.keyconfigs),
+so re-bound shortcuts are shown with the user's key and flagged.
 """
 
-# The reload-detection idiom below must run BEFORE `import bpy` so that on a
-# first import "bpy" is not yet in this module's namespace and we take the
-# initial-import branch (which is what actually imports the sub-modules).
+# Reload-detection idiom (must run BEFORE importing bpy below).
 if "bpy" in locals():
     import importlib
-    for _mod_name in ("prefs", "hints", "core", "ui"):
+    for _mod_name in ("prefs", "hints", "constants", "core", "draw",
+                      "panels"):
         if _mod_name in locals():
             importlib.reload(locals()[_mod_name])
 else:
     import bpy
     from . import prefs
     from . import hints
+    from . import constants
     from . import core
-    from . import ui
+    from . import draw
+    from . import panels
 
 import bpy  # noqa: E402  (guarantee bpy is in scope for bl_info consumers)
 
 bl_info = {
     "name": "Key Hint",
     "author": "Noct2vis",
-    "version": (0, 1, 2),
+    "version": (0, 2, 0),
     "blender": (3, 0, 0),
     "location": "3D Viewport > Sidebar > Key Hint",
     "description": (
-        "Game-style dynamic shortcut hints: hold Ctrl/Shift/Alt to see the "
-        "real keymap shortcuts that start with that modifier"
+        "Flowkeys-style shortcut reference: categorized list in the sidebar "
+        "and 3D-viewport HUD, synced to your keymap (custom bindings marked ✱)"
     ),
     "warning": "",
     "doc_url": "https://github.com/Noct2vis/key_hint",
@@ -62,15 +62,13 @@ bl_info = {
 
 
 def register():
-    # Order matters: preferences first, then operators + UI.
     bpy.utils.register_class(prefs.KeyHintAddonPreferences)
+    panels.register_notes()
+    bpy.utils.register_class(panels.KEYHINT_PT_panel)
     bpy.utils.register_class(core.KeyHintCaptureOperator)
     bpy.utils.register_class(core.KeyHintRestartOperator)
-    bpy.utils.register_class(core.KeyHintStatusOperator)
-    bpy.utils.register_class(ui.KEYHINT_PT_panel)
     core.register_enable_property()
     core.register_app_handlers()
-    # Auto start if the user opted in (default on), after context is ready.
     core.register_auto_start()
 
 
@@ -80,14 +78,6 @@ def unregister():
     core.unregister_app_handlers()
     core.unregister_enable_property()
     try:
-        bpy.utils.unregister_class(ui.KEYHINT_PT_panel)
-    except RuntimeError:
-        pass
-    try:
-        bpy.utils.unregister_class(core.KeyHintStatusOperator)
-    except RuntimeError:
-        pass
-    try:
         bpy.utils.unregister_class(core.KeyHintRestartOperator)
     except RuntimeError:
         pass
@@ -95,6 +85,11 @@ def unregister():
         bpy.utils.unregister_class(core.KeyHintCaptureOperator)
     except RuntimeError:
         pass
+    try:
+        bpy.utils.unregister_class(panels.KEYHINT_PT_panel)
+    except RuntimeError:
+        pass
+    panels.unregister_notes()
     try:
         bpy.utils.unregister_class(prefs.KeyHintAddonPreferences)
     except RuntimeError:
