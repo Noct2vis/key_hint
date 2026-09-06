@@ -46,6 +46,8 @@ _shader_tried = False
 # Draggable title-bar rectangle in *region* pixel coords (x, y, w, h);
 # y is the bottom of the title bar. Updated every draw so core can hit-test.
 hud_title_rect = (0.0, 0.0, 0.0, 0.0)
+# Whole panel rect (x, y_bottom, w, h) for computing the anchor offset.
+hud_panel_rect = (0.0, 0.0, 0.0, 0.0)
 
 
 def _shader_2d():
@@ -138,15 +140,20 @@ def _draw_rect(region, x, y, w, h, color):
 
 
 def draw_hud(region, prefs, payload):
-    """Draw the reference window.
+    """Draw the reference window in the bottom-right corner.
 
     payload = {
         "title": str,
         "lines": [(combo, label), ...],
         "locked": bool,
     }
+
+    offset_x/offset_y are measured from the *right* and *bottom* edges of the
+    region respectively.  The title bar rect (for dragging) is exported to
+    ``hud_title_rect`` in region-local pixel coords (x, y, w, h) with y being
+    the bottom of the title bar.
     """
-    global hud_title_rect
+    global hud_title_rect, hud_panel_rect
     if prefs is None or region is None:
         return
 
@@ -157,8 +164,8 @@ def draw_hud(region, prefs, payload):
     accent = tuple(prefs.accent_color) if prefs.use_separate_accent \
         else text_color
 
-    mx = float(prefs.offset_x)
-    my = float(prefs.offset_y)
+    mx = float(prefs.offset_x)      # distance from right edge
+    my = float(prefs.offset_y)      # distance from bottom edge
     pad = 8.0
     line_h = 14.0 if font < 14 else (font + 4)
 
@@ -166,7 +173,6 @@ def draw_hud(region, prefs, payload):
     locked = payload.get("locked", False)
     lines = payload.get("lines", [])
 
-    # Title bar is one extra line at the top.
     title_text = ("🔒 " if locked else "🔓 ") + title
     body = lines
 
@@ -174,6 +180,7 @@ def draw_hud(region, prefs, payload):
     panel_w = _tw(fid, title_text, small)
     for combo, label in body:
         panel_w = max(panel_w, _tw(fid, combo + "  " + label, font))
+    panel_w += pad * 2
 
     usable = region.height - my - 24
     line_px = line_h + 2.0
@@ -181,26 +188,31 @@ def draw_hud(region, prefs, payload):
     body = body[: max(0, max_lines - 1)]
 
     total_lines = 1 + len(body)
-    total_h = total_lines * line_px + pad * 2
+    title_h = line_px + 2.0
+    total_h = title_h + len(body) * line_px + pad
 
-    x0 = mx
-    y_top = region.height - my
+    # Panel is anchored bottom-right.
+    x_right = region.width - mx
+    y_bottom = my
+    x0 = x_right - panel_w
+    y_top = y_bottom + total_h
+
+    hud_panel_rect = (x0, y_bottom, panel_w, total_h)
 
     # Backdrop.
-    _draw_rect(region, x0, y_top - total_h, panel_w + pad * 2, total_h,
+    _draw_rect(region, x0, y_bottom, panel_w, total_h,
                (0.0, 0.0, 0.0, prefs.background_opacity))
 
-    # Title bar (slightly lighter) + export its rect for drag hit-testing.
-    title_h = line_px + 2.0
-    _draw_rect(region, x0, y_top - title_h, panel_w + pad * 2, title_h,
+    # Title bar (top strip) + export its rect for drag hit-testing.
+    _draw_rect(region, x0, y_top - title_h, panel_w, title_h,
                (0.12, 0.16, 0.24, 0.85))
-    hud_title_rect = (x0, y_top - title_h, panel_w + pad * 2, title_h)
+    hud_title_rect = (x0, y_top - title_h, panel_w, title_h)
 
     # Title text.
     _draw_text(fid, x0 + pad, y_top - title_h + 2, title_text, accent, small)
 
-    # Body lines.
-    y = y_top - title_h - pad
+    # Body lines (top to bottom).
+    y = y_top - title_h - 2
     for combo, label in body:
         _draw_text(fid, x0 + pad, y, combo, text_color, font)
         _draw_text(fid, x0 + pad + panel_w * 0.42, y, label, text_color, font)

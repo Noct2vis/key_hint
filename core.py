@@ -330,22 +330,41 @@ class KeyHintWatchOperator(bpy.types.Operator):
 
         evt_type = getattr(event, "type", None)
         value = getattr(event, "value", None)
+        region = getattr(context, "region", None)
+        if region is None:
+            return
+
+        # region-local y with origin at BOTTOM (same as draw).
+        y_bottom_up = region.height - y
 
         if evt_type == "LEFTMOUSE":
             if value == "PRESS" and not prefs.hud_locked:
                 tx, ty, tw, th = hud_draw.hud_title_rect
                 if tw > 0 and th > 0 and tx <= x <= tx + tw and \
-                        ty <= y <= ty + th:
+                        ty <= y_bottom_up <= ty + th:
                     _dragging = True
-                    _drag_dx = x - prefs.offset_x
-                    _drag_dy = y - (context.region.height - prefs.offset_y)
+                    # Grab offset: mouse position relative to the title bar's
+                    # bottom-left corner.
+                    _drag_dx = x - tx
+                    _drag_dy = y_bottom_up - ty
             elif value == "RELEASE":
                 _dragging = False
         elif evt_type == "MOUSEMOVE" and _dragging and not prefs.hud_locked:
-            prefs.offset_x = max(0, int(x - _drag_dx))
-            # offset_y is measured from the top of the region.
-            top_y = context.region.height - y
-            prefs.offset_y = max(0, int(top_y + _drag_dy))
+            tx, ty, tw, th = hud_draw.hud_title_rect
+            px, py, pw, ph = hud_draw.hud_panel_rect
+            if tw <= 0 or pw <= 0:
+                return
+            # New title-bar bottom-left from the mouse.
+            new_tx = x - _drag_dx
+            new_ty = y_bottom_up - _drag_dy
+            # New panel bottom-left = title-bottom-left shifted down by the
+            # fixed distance between title bar and panel bottom.
+            title_to_bottom = ty - py
+            new_py = new_ty - title_to_bottom
+            new_px = new_tx - (tx - px)
+            # Anchors: offset_x from right, offset_y from bottom.
+            prefs.offset_x = max(0, int(region.width - (new_px + pw)))
+            prefs.offset_y = max(0, int(new_py))
 
     def cancel(self, context):
         self._stop(context)
