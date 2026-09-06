@@ -52,7 +52,7 @@ _MODIFIER_KEY_TYPES = (
 
 # Time in seconds a modifier stays "fresh" if we stop seeing updates,
 # so the panel does not blink while the user is idle.
-_STALE_MODIFIER_SECS = 0.6
+_STALE_MODIFIER_SECS = 1.2
 
 # How often the overlay refreshes.
 _TIMER_STEP = 0.1
@@ -403,3 +403,135 @@ def _find_area(area_ptr):
                 if area.as_pointer() == area_ptr:
                     return area
     return None
+
+
+# ---------------------------------------------------------------------------
+# Public start / stop helpers + auto start ----------------------------------
+# ---------------------------------------------------------------------------
+def is_running():
+    return KeyHintCaptureOperator.state.running
+
+
+def _find_view3d_override():
+    """Return an override context pointing at the first usable 3D viewport."""
+    for wm in bpy.data.window_managers:
+        for win in wm.windows:
+            screen = getattr(win, "screen", None)
+            if screen is None:
+                continue
+            for area in screen.areas:
+                if area.type != "VIEW_3D":
+                    continue
+                region = next((r for r in area.regions if r.type == "WINDOW"),
+                              None)
+                if region is None:
+                    continue
+                return {
+                    "window": win,
+                    "screen": screen,
+                    "area": area,
+                    "region": region,
+                }
+    return None
+
+
+def start_capture(verbose=True):
+    """Try to start the capture overlay. Returns True on success."""
+    if is_running():
+        return True
+    override = _find_view3d_override()
+    if override is None:
+        if verbose:
+            print("[Key Hint] No 3D viewport found - cannot start yet.")
+        return False
+    try:
+        bpy.ops.key_hint.capture(override, "INVOKE_DEFAULT")
+    except Exception as exc:             # noqa: BLE001
+        print("[Key Hint] start failed:", exc)
+        return False
+    if verbose and is_running():
+        print("[Key Hint] capture started")
+    return is_running()
+
+
+def stop_capture(verbose=True):
+    """Try to stop the capture overlay."""
+    if not is_running():
+        return True
+    override = _find_view3d_override()
+    if override is None:
+        return False
+    try:
+        bpy.ops.key_hint.capture(override, "INVOKE_DEFAULT")
+    except Exception as exc:             # noqa: BLE001
+        print("[Key Hint] stop failed:", exc)
+        return False
+    if verbose and not is_running():
+        print("[Key Hint] capture stopped")
+    return not is_running()
+
+
+# --- auto start -----------------------------------------------------------
+# Screencast-Keys-style auto start: when the add-on is enabled (or a file is
+# loaded) and the user asked for auto start, keep trying to open the capture
+# until a 3D viewport is usable.  We use an app timer so the attempt happens
+# after Blender's context is ready.
+def _auto_start_loop():
+    if is_running():
+        return None                    # done
+    prefs = get_prefs()
+    if prefs is not None and not prefs.auto_start:
+        return None                    # disabled
+    if start_capture(verbose=False):
+        return None
+    return 1.0                         # retry once a second
+
+
+_AUTO_TIMER = None
+
+
+def register_auto_start():
+    """Start the auto-start timer (no-op if already running / background)."""
+    global _AUTO_TIMER
+    if bpy.app.background:
+        return
+    if _AUTO_TIMER is not None:
+        return
+    try:
+        _AUTO_TIMER = bpy.app.timers.register(_auto_start_loop)
+    except Exception:                  # noqa: BLE001  (already registered)
+        _AUTO_TIMER = None
+
+
+def unregister_auto_start():
+    global _AUTO_TIMER
+    if _AUTO_TIMER is not None:
+        try:
+            bpy.app.timers.unregister(_AUTO_TIMER)
+        except Exception:              # noqa: BLE001
+            pass
+        _AUTO_TIMER = None
+
+
+@bpy.app.handlers.persistent
+def _load_post_handler(_dummy):
+    # Re-arm auto start after every new/loaded file.
+    register_auto_start()
+
+
+def handle_auto_start_change(self, context):
+    """Update callback wired to the auto_start preference."""
+    prefs = get_prefs()
+    if prefs is not None and prefs.auto_start:
+        register_auto_start()
+    else:
+        unregister_auto_start()
+
+
+def register_app_handlers():
+    bpy.app.handlers.load_post.append(_load_post_handler)
+
+
+def unregister_app_handlers():
+    if _load_post_handler in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_load_post_handler)

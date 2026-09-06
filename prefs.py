@@ -25,6 +25,12 @@ def get_prefs():
         return None
 
 
+def _on_auto_start_change(_prefs, _context):
+    # Imported lazily to avoid a circular import between prefs and core.
+    from . import core
+    core.handle_auto_start_change(_prefs, _context)
+
+
 class KeyHintAddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
@@ -35,7 +41,8 @@ class KeyHintAddonPreferences(bpy.types.AddonPreferences):
             "Automatically start the capture / HUD overlay when a new file is "
             "loaded after enabling the addon"
         ),
-        default=False,
+        default=True,
+        update=lambda self, ctx: _on_auto_start_change(self, ctx),
     )
 
     show_pressed_keys: BoolProperty(

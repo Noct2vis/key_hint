@@ -28,18 +28,26 @@ Ctrl + Shift + A  添加物体
 2. Blender 菜单：`Edit > Preferences > Add-ons > Install…`，选中 zip 后启用 **Key Hint**。
    - 若用仓库文件夹安装：把整个 `key_hint` 文件夹放到你的
      `scripts/addons/` 目录下，然后在插件列表里勾选。
-3. 在 **3D 视口侧边栏 (`N`) → Key Hint** 面板打开开关，或
-   `Space` 搜索运行 `key_hint.capture`。
 
 ## 使用
 
-- 默认 **关闭**。启用后，当你在 3D 视口按住 `Ctrl`/`Shift`/`Alt`/`Super` 时，
-  左下角会出现以这些修饰键开头的快捷键提示。
+- 默认 **自动开启**（Preferences → Add-ons → Key Hint → “Auto start with
+  Blender”）。启用插件后，若处于 3D 视口，左下角会出现一条半透明的浅提示
+  “Hold Ctrl / Shift / Alt to reveal shortcuts”——**看到这条提示就说明捕获已运行**。
+- 在 3D 视口 **按住** `Ctrl`/`Shift`/`Alt`/`Super`，就会列出你当前真实键位里以
+  该修饰键开头的快捷键；松开即消失。
 - 修饰键组合：按住 `Ctrl+Shift` 会列出 `Ctrl+Shift+X` 这类双修饰快捷键。
+- 若没有自动出现，可在 **3D 视口侧边栏 (`N`) → Key Hint** 面板手动勾选
+  “Enabled”，或 `Space` 搜索运行 `key_hint.capture` 手动启动。
 - 可调节项（`Preferences → Add-ons → Key Hint`）：
   - 随 Blender 启动自动开启
   - 是否显示按键回显 / 快捷键提示
   - 提示条数上限、字号、透明度、偏移、强调色
+
+> **想确认它到底有没有在跑？** 打开 Blender 的 Python Console 或 Info，输入
+> `import key_hint; key_hint.core.is_running()`。返回 `True` 说明捕获在运行；
+> 为 `False` 时可手动运行 `bpy.ops.key_hint.capture('INVOKE_DEFAULT')` 启动。
+> 若启动时控制台打印 `[Key Hint] ...failed...`，把那行贴给我。
 
 ## 工作原理 / 技术说明
 

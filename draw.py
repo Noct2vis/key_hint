@@ -170,6 +170,7 @@ def _draw_hud_inner(area, region, data):
     held = data.get("held", [])
     pressed = data.get("pressed", [])
     hints_list = data.get("hints", [])
+    running = data.get("running", False)
 
     font = prefs.font_size
     text_color = tuple(prefs.text_color)
@@ -177,10 +178,15 @@ def _draw_hud_inner(area, region, data):
         else text_color
 
     show_keys = prefs.show_pressed_keys
-    show_hints = prefs.show_hints and bool(held)
+    show_hints = prefs.show_hints
 
-    if not (show_keys or show_hints):
+    # Even when idle (nothing held / pressed), draw a small idle hint so the
+    # user gets immediate feedback that the overlay is alive.
+    if not show_keys and not show_hints:
         return
+    if not (show_keys or (show_hints and bool(held)) or bool(pressed)):
+        if not running:
+            return
 
     margin_x = prefs.offset_x
     margin_y = prefs.offset_y
@@ -213,6 +219,10 @@ def _draw_hud_inner(area, region, data):
             segs.append(("lbl", combo["label"]))
             rows.append(segs)
 
+    if not rows and running:
+        # Idle state: give the user feedback that the HUD is on.
+        rows.append([("hint", "Hold Ctrl / Shift / Alt to reveal shortcuts")])
+
     if not rows:
         return
 
@@ -220,6 +230,8 @@ def _draw_hud_inner(area, region, data):
         return seg[1]
 
     def seg_color(seg):
+        if seg[0] == "hint":
+            return (*text_color[:3], 0.75)   # dim idle text
         return accent if seg[0] == "mod" else text_color
 
     def seg_glue(a, b):

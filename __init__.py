@@ -68,9 +68,14 @@ def register():
     bpy.utils.register_class(core.KeyHintCaptureOperator)
     bpy.utils.register_class(ui.KEYHINT_PT_panel)
     core.register_enable_property()
+    core.register_app_handlers()
+    # Auto start if the user opted in (default on), after context is ready.
+    core.register_auto_start()
 
 
 def unregister():
+    core.unregister_auto_start()
+    core.unregister_app_handlers()
     core.unregister_enable_property()
     try:
         bpy.utils.unregister_class(ui.KEYHINT_PT_panel)
