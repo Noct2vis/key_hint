@@ -147,6 +147,10 @@ class KeyHintCaptureOperator(bpy.types.Operator):
         if not st.running:
             return
         wm = context.window_manager
+        try:
+            wm.status_text_set(None)
+        except Exception:                    # noqa: BLE001
+            pass
         for t in st.timers:
             try:
                 wm.event_timer_remove(t)
@@ -235,7 +239,18 @@ class KeyHintCaptureOperator(bpy.types.Operator):
         # Periodically keep the reference in sync with mode/tool changes.
         self._scan_if_needed(context, now)
         self._schedule_redraw(context)
-        return {"PASS_THROUGH"}
+
+        # Status-bar indicator (very visible, no console required).
+        try:
+            count = len(st.entries)
+            wm = context.window_manager
+            held_txt = " + ".join(hints_key_name(m) for m in sorted(st.held))
+            sub = (" | holding " + held_txt) if held_txt else ""
+            wm.status_text_set(
+                "[Key Hint] active · entries=%d%s" % (count, sub))
+        except Exception:                    # noqa: BLE001
+            pass
+        return {"PASS_THROUGH"}    
 
     def _schedule_redraw(self, context):
         screen = getattr(context, "screen", None)
@@ -303,24 +318,10 @@ def register_enable_property():
         return KeyHintCaptureOperator.state.running
 
     def set_enabled(_self, value):
-        for wm in bpy.data.window_managers:
-            for win in wm.windows:
-                for area in win.screen.areas:
-                    if area.type == "VIEW_3D":
-                        override = {
-                            "window": win, "screen": win.screen,
-                            "area": area,
-                            "region": next(
-                                (r for r in area.regions
-                                 if r.type == "WINDOW"), None),
-                        }
-                        op = bpy.ops.key_hint.capture
-                        if value and not KeyHintCaptureOperator.state.running:
-                            op(override, "INVOKE_DEFAULT")
-                        elif (not value and
-                              KeyHintCaptureOperator.state.running):
-                            op(override, "INVOKE_DEFAULT")
-                        return
+        if value and not KeyHintCaptureOperator.state.running:
+            start_capture(verbose=True)
+        elif (not value) and KeyHintCaptureOperator.state.running:
+            stop_capture(verbose=True)
 
     bpy.types.WindowManager.key_hint_enabled = bpy.props.BoolProperty(
         name="Key Hint",
@@ -385,6 +386,35 @@ def _find_view3d_override():
     return None
 
 
+class KeyHintRestartOperator(bpy.types.Operator):
+    """Force a full restart of the capture / HUD. Exists so a user who sees
+    nothing can restart from the N-panel without touching the Python console.
+    It prints a short diagnostic and shows the live state in the status bar."""
+
+    bl_idname = "key_hint.restart"
+    bl_label = "Key Hint Restart / Show Status"
+    bl_description = "Force restart the Key Hint HUD and report its state"
+
+    def execute(self, context):
+        if is_running():
+            stop_capture(verbose=True)
+        ok = start_capture(verbose=True)
+        st = KeyHintCaptureOperator.state
+        msg = ("[Key Hint] running=%s handlers=%d timers=%d entries=%d mode=%r"
+               % (ok, len(st.handlers), len(st.timers), len(st.entries),
+                  st.mode_title))
+        print(msg)
+        if context.window_manager is not None:
+            try:
+                context.window_manager.status_text_set(
+                    "[Key Hint] " + ("RUNNING entries=%d" % len(st.entries)
+                                     if ok else "NOT RUNNING"))
+            except Exception:                    # noqa: BLE001
+                pass
+        self.report({"INFO"}, msg)
+        return {"FINISHED"}
+
+
 def start_capture(verbose=True):
     if is_running():
         return True
@@ -394,7 +424,8 @@ def start_capture(verbose=True):
             print("[Key Hint] No 3D viewport found - cannot start yet.")
         return False
     try:
-        bpy.ops.key_hint.capture(override, "INVOKE_DEFAULT")
+        with bpy.context.temp_override(**override):
+            bpy.ops.key_hint.capture("INVOKE_DEFAULT")
     except Exception as exc:             # noqa: BLE001
         print("[Key Hint] start failed:", exc)
         return False
@@ -410,7 +441,8 @@ def stop_capture(verbose=True):
     if override is None:
         return False
     try:
-        bpy.ops.key_hint.capture(override, "INVOKE_DEFAULT")
+        with bpy.context.temp_override(**override):
+            bpy.ops.key_hint.capture("INVOKE_DEFAULT")
     except Exception as exc:             # noqa: BLE001
         print("[Key Hint] stop failed:", exc)
         return False

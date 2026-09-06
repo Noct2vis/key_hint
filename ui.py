@@ -32,6 +32,7 @@ class KEYHINT_PT_panel(bpy.types.Panel):
         # Live enable toggle (drives the passive capture operator).
         row = layout.row()
         row.prop(context.window_manager, "key_hint_enabled", text="Enabled")
+        layout.operator("key_hint.restart", text="Restart / Show status")
 
         layout.separator()
 

@@ -69,6 +69,8 @@ def main():
 
     check("operator registered",
           hasattr(bpy.ops.key_hint, "capture"))
+    check("restart operator registered",
+          hasattr(bpy.ops.key_hint, "restart"))
     check("panel registered",
           hasattr(bpy.types, "KEYHINT_PT_panel"))
     check("wm enable property",

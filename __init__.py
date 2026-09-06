@@ -66,6 +66,7 @@ def register():
     # Order matters: preferences first, then the capture operator + UI.
     bpy.utils.register_class(prefs.KeyHintAddonPreferences)
     bpy.utils.register_class(core.KeyHintCaptureOperator)
+    bpy.utils.register_class(core.KeyHintRestartOperator)
     bpy.utils.register_class(ui.KEYHINT_PT_panel)
     core.register_enable_property()
     core.register_app_handlers()
@@ -79,6 +80,10 @@ def unregister():
     core.unregister_enable_property()
     try:
         bpy.utils.unregister_class(ui.KEYHINT_PT_panel)
+    except RuntimeError:
+        pass
+    try:
+        bpy.utils.unregister_class(core.KeyHintRestartOperator)
     except RuntimeError:
         pass
     try:
