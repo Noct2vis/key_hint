@@ -63,10 +63,11 @@ bl_info = {
 
 
 def register():
-    # Order matters: preferences first, then the capture operator + UI.
+    # Order matters: preferences first, then operators + UI.
     bpy.utils.register_class(prefs.KeyHintAddonPreferences)
     bpy.utils.register_class(core.KeyHintCaptureOperator)
     bpy.utils.register_class(core.KeyHintRestartOperator)
+    bpy.utils.register_class(core.KeyHintModifierProbe)
     bpy.utils.register_class(ui.KEYHINT_PT_panel)
     core.register_enable_property()
     core.register_app_handlers()
@@ -75,11 +76,16 @@ def register():
 
 
 def unregister():
+    core.stop(verbose=False)
     core.unregister_auto_start()
     core.unregister_app_handlers()
     core.unregister_enable_property()
     try:
         bpy.utils.unregister_class(ui.KEYHINT_PT_panel)
+    except RuntimeError:
+        pass
+    try:
+        bpy.utils.unregister_class(core.KeyHintModifierProbe)
     except RuntimeError:
         pass
     try:
