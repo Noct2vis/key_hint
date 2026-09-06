@@ -35,10 +35,26 @@ from . import core
 from . import draw
 from . import panels
 
+
+def _reload_submodules():
+    """Force-reload all submodules so a stale cached module (from an earlier
+    addon version) never surfaces.  This fixes the classic Blender issue where
+    installing a new version over an old one leaves the old module object in
+    ``sys.modules`` and `register()` then hits 'has no attribute X'."""
+    import importlib
+    global prefs, hints, constants, core, draw, panels
+    prefs = importlib.reload(prefs)
+    hints = importlib.reload(hints)
+    constants = importlib.reload(constants)
+    core = importlib.reload(core)
+    draw = importlib.reload(draw)
+    panels = importlib.reload(panels)
+
+
 bl_info = {
     "name": "Key Hint",
     "author": "Noct2vis",
-    "version": (0, 3, 0),
+    "version": (0, 3, 1),
     "blender": (3, 0, 0),
     "location": "3D Viewport > Sidebar > Key Hint",
     "description": (
@@ -61,6 +77,7 @@ def _register_class(cls):
 
 
 def register():
+    _reload_submodules()
     _register_class(prefs.KeyHintAddonPreferences)
     panels.register_notes()
     _register_class(panels.KEYHINT_PT_panel)
