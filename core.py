@@ -305,21 +305,22 @@ class KeyHintWatchOperator(bpy.types.Operator):
         value = getattr(event, "value", None)
 
         # --- held modifiers ----------------------------------------------
-        # Modifier keys are tracked by their own PRESS/RELEASE events only,
-        # so the HUD flips to the modifier group the moment it is pressed and
-        # flips back the moment it is released (no latching). We never rebuild
-        # the set from the boolean flags of other events (TIMER etc. would
-        # corrupt it).
-        mod = {"LEFT_CTRL": "ctrl", "RIGHT_CTRL": "ctrl",
-               "LEFT_SHIFT": "shift", "RIGHT_SHIFT": "shift",
-               "LEFT_ALT": "alt", "RIGHT_ALT": "alt",
-               "OSKEY": "oskey"}.get(evt_type)
-        if mod is not None:
-            if value == "PRESS":
-                _held_mods.add(mod)
-            elif value == "RELEASE":
-                _held_mods.discard(mod)
-        elif evt_type == "WINDOW_DEACTIVATE":
+        # Rebuild from the event's boolean flags on EVERY event (including the
+        # 0.1s TIMER). Isolated modifier key-down events are NOT dispatched to
+        # a PASS_THROUGH modal, so tracking them via their own PRESS/RELEASE is
+        # unreliable; the boolean flags, however, are set on every event and
+        # reflect the physical state, so the group flips on press and reverts
+        # on release within one timer tick. (Same approach as Screencast Keys.)
+        _held_mods = set()
+        if getattr(event, "ctrl", False):
+            _held_mods.add("ctrl")
+        if getattr(event, "shift", False):
+            _held_mods.add("shift")
+        if getattr(event, "alt", False):
+            _held_mods.add("alt")
+        if getattr(event, "oskey", False):
+            _held_mods.add("oskey")
+        if evt_type == "WINDOW_DEACTIVATE":
             _held_mods.clear()
 
         # --- operation hint (fires the moment the operation key is pressed) --
