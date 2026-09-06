@@ -43,13 +43,15 @@ _cjk_loaded = False
 _shader = None
 _shader_tried = False
 
-# Draggable title-bar rectangle in *region* pixel coords (x, y, w, h);
-# y is the bottom of the title bar. Updated every draw so core can hit-test.
+# Hit-test rectangles are exported in *window* pixel coords (origin
+# bottom-left of the whole window) so core can compare them directly against
+# event.mouse_x / event.mouse_y without depending on a modal's context.region.
+# Each rect: (x, y_bottom, w, h).
 hud_title_rect = (0.0, 0.0, 0.0, 0.0)
-# Whole panel rect (x, y_bottom, w, h) for computing the anchor offset.
 hud_panel_rect = (0.0, 0.0, 0.0, 0.0)
-# Lock/unlock button rect (right end of the title bar).
 hud_lock_rect = (0.0, 0.0, 0.0, 0.0)
+# Region bounds for offset math: (region_x, region_y, region_w, region_h).
+hud_region_info = (0, 0, 0, 0)
 
 
 def _shader_2d():
@@ -163,7 +165,7 @@ def draw_hud(region, prefs, payload):
     ``hud_title_rect`` in region-local pixel coords (x, y, w, h) with y being
     the bottom of the title bar.
     """
-    global hud_title_rect, hud_panel_rect, hud_lock_rect
+    global hud_title_rect, hud_panel_rect, hud_lock_rect, hud_region_info
     if prefs is None or region is None:
         return
 
@@ -216,17 +218,21 @@ def draw_hud(region, prefs, payload):
     x0 = x_right - panel_w
     y_top = y_bottom + total_h
 
-    hud_panel_rect = (x0, y_bottom, panel_w, total_h)
+    # Window-space offsets (region coords are region-local; add region.x/y).
+    wx = region.x
+    wy = region.y
+    hud_region_info = (region.x, region.y, region.width, region.height)
+    hud_panel_rect = (wx + x0, wy + y_bottom, panel_w, total_h)
 
     # Backdrop.
     _draw_rect(region, x0, y_bottom, panel_w, total_h,
                (0.0, 0.0, 0.0, prefs.background_opacity))
 
-    # Title bar (top strip) + export its rect for drag hit-testing.
+    # Title bar (top strip) + export its rect (window coords) for hit-testing.
     title_y = y_top - title_h
     _draw_rect(region, x0, title_y, panel_w, title_h,
                (0.12, 0.16, 0.24, 0.85))
-    hud_title_rect = (x0, title_y, panel_w, title_h)
+    hud_title_rect = (wx + x0, wy + title_y, panel_w, title_h)
 
     # Title text (left), vertically centered in the title bar.
     title_ty = title_y + (title_h - small_h) / 2.0
@@ -234,7 +240,7 @@ def draw_hud(region, prefs, payload):
 
     # Lock/unlock button (right end of the title bar).
     lock_x = x0 + panel_w - pad - lock_w
-    hud_lock_rect = (lock_x - 4, title_y, lock_w + 8, title_h)
+    hud_lock_rect = (wx + lock_x - 4, wy + title_y, lock_w + 8, title_h)
     _draw_rect(region, lock_x - 4, title_y, lock_w + 8, title_h,
                (0.9, 0.7, 0.1, 0.9) if locked else (0.3, 0.5, 0.3, 0.9))
     _draw_text(fid, lock_x, title_ty, lock_text, (0.0, 0.0, 0.0, 1.0), small)

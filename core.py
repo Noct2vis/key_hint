@@ -359,50 +359,47 @@ class KeyHintWatchOperator(bpy.types.Operator):
             return
         evt_type = getattr(event, "type", None)
         value = getattr(event, "value", None)
-        region = getattr(context, "region", None)
-        if region is None:
-            return
 
-        # Use WINDOW coords (origin bottom-left, y up) minus the region's
-        # window offset -> region-local coords identical to the draw space.
-        # (mouse_region_x/y has a different origin direction and is unreliable
-        #  for hit-testing against the drawn rects.)
+        # Rects are exported in WINDOW coords; compare directly against the
+        # window mouse position (no region math that can go wrong).
         mx = getattr(event, "mouse_x", None)
         my = getattr(event, "mouse_y", None)
         if mx is None or my is None:
             return
-        x = mx - region.x
-        y = my - region.y
 
         if evt_type == "LEFTMOUSE" and value == "PRESS":
-            # 1) Lock/unlock icon (right end of the title bar)?
+            # 1) Lock/unlock button?
             lx, ly, lw, lh = hud_draw.hud_lock_rect
-            if lw > 0 and lh > 0 and lx <= x <= lx + lw and \
-                    ly <= y <= ly + lh:
+            if lw > 0 and lh > 0 and lx <= mx <= lx + lw and \
+                    ly <= my <= ly + lh:
                 prefs.hud_locked = not prefs.hud_locked
                 return
             # 2) Drag title bar (only when unlocked).
             if not prefs.hud_locked:
                 tx, ty, tw, th = hud_draw.hud_title_rect
-                if tw > 0 and th > 0 and tx <= x <= tx + tw and \
-                        ty <= y <= ty + th:
+                if tw > 0 and th > 0 and tx <= mx <= tx + tw and \
+                        ty <= my <= ty + th:
                     _dragging = True
-                    _drag_dx = x - tx
-                    _drag_dy = y - ty
+                    _drag_dx = mx - tx
+                    _drag_dy = my - ty
         elif evt_type == "LEFTMOUSE" and value == "RELEASE":
             _dragging = False
         elif evt_type == "MOUSEMOVE" and _dragging and not prefs.hud_locked:
             tx, ty, tw, th = hud_draw.hud_title_rect
             px, py, pw, ph = hud_draw.hud_panel_rect
-            if tw <= 0 or pw <= 0:
+            rx, ry, rw, rh = hud_draw.hud_region_info
+            if tw <= 0 or pw <= 0 or rw <= 0:
                 return
-            new_tx = x - _drag_dx
-            new_ty = y - _drag_dy
+            new_tx = mx - _drag_dx          # window coords
+            new_ty = my - _drag_dy
             title_to_bottom = ty - py
             new_py = new_ty - title_to_bottom
             new_px = new_tx - (tx - px)
-            prefs.offset_x = max(0, int(region.width - (new_px + pw)))
-            prefs.offset_y = max(0, int(new_py))
+            # Convert back to region-local for the anchor offsets.
+            local_px = new_px - rx
+            local_py = new_py - ry
+            prefs.offset_x = max(0, int(rw - (local_px + pw)))
+            prefs.offset_y = max(0, int(local_py))
 
     def cancel(self, context):
         self._stop(context)
