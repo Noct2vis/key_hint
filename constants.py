@@ -116,6 +116,40 @@ SHORTCUTS = [
     dict(id="redo", label="重做", op="ed.redo", key="Z", mods=("Ctrl", "Shift"), cat="文件", modes=None),
     dict(id="search_menu", label="搜索菜单", op="wm.search_menu", key="F3", mods=(), cat="文件", modes=None),
     dict(id="quick_favorites", label="快速收藏", op="wm.call_menu", key="Q", mods=(), cat="文件", modes=None),
+
+    # ---- 左侧工具栏（Toolbar） -----------------------------------------
+    # 物体模式工具栏
+    dict(id="tool_box", label="框选", op="view3d.select_box", key="W", mods=(), cat="工具栏", modes={"OBJECT", "EDIT_MESH"}),
+    dict(id="tool_circle", label="圆形选择", op="view3d.select_circle", key="C", mods=(), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_lasso", label="套索选择", op="view3d.select_lasso", key="L", mods=("Ctrl",), cat="工具栏", modes={"OBJECT", "EDIT_MESH"}),
+    dict(id="tool_cursor", label="游标", key="SPACE", mods=("Shift",), cat="工具栏", modes={"OBJECT", "EDIT_MESH"}),
+    dict(id="tool_move", label="移动", op="transform.translate", key="G", mods=(), cat="工具栏", modes={"OBJECT", "EDIT_MESH"}),
+    dict(id="tool_rotate", label="旋转", op="transform.rotate", key="R", mods=(), cat="工具栏", modes={"OBJECT", "EDIT_MESH"}),
+    dict(id="tool_scale", label="缩放", op="transform.resize", key="S", mods=(), cat="工具栏", modes={"OBJECT", "EDIT_MESH"}),
+    dict(id="tool_transform", label="变换", op="transform.transform", key="G", mods=("Alt",), cat="工具栏", modes={"OBJECT", "EDIT_MESH"}),
+    dict(id="tool_annotate", label="标注", op="gpencil.annotate", key="D", mods=(), cat="工具栏", modes=None),
+    dict(id="tool_measure", label="测量", op="view3d.measure", key="M", mods=(), cat="工具栏", modes=None),
+    # 编辑模式工具栏
+    dict(id="tool_extrude", label="挤出区域", op="mesh.extrude_region_move", key="E", mods=(), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_extrude_normals", label="沿法线挤出", op="mesh.extrude_region_move", key="E", mods=("Alt",), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_inset", label="内插面", op="mesh.inset", key="I", mods=(), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_bevel", label="倒角", op="mesh.bevel", key="B", mods=("Ctrl",), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_loopcut", label="环切", op="mesh.loopcut_slide", key="R", mods=("Ctrl",), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_knife", label="切割", op="mesh.knife_tool", key="K", mods=(), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_poly_build", label="多边形构建", key="NONE", mods=(), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_spin", label="旋转体", key="NONE", mods=(), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_smooth", label="平滑顶点", op="mesh.vertices_smooth", key="S", mods=("Ctrl",), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_edge_slide", label="边滑动", op="transform.edge_slide", key="G G", mods=(), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_vertex_slide", label="顶点滑动", op="transform.vert_slide", key="V", mods=("Shift",), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_shrink_fatten", label="收缩/膨胀", op="transform.shrink_fatten", key="S", mods=("Alt",), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_push_pull", label="推拉", key="NONE", mods=(), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_shear", label="斜切", op="transform.shear", key="S", mods=("Ctrl", "Alt", "Shift"), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_rip_region", label="撕裂区域", op="mesh.rip_move", key="V", mods=(), cat="工具栏", modes={"EDIT_MESH"}),
+    dict(id="tool_rip_edge", label="撕裂边", op="mesh.rip_edge_move", key="V", mods=("Alt",), cat="工具栏", modes={"EDIT_MESH"}),
+    # 雕刻工具栏笔刷（4.x 起多数笔刷已无快捷键，用 1-9 快速访问收藏笔刷）
+    dict(id="tool_brush_fav", label="收藏笔刷 1-9", key="1-9", mods=(), cat="工具栏", modes={"SCULPT"}),
+    dict(id="tool_smooth_brush", label="平滑笔刷", op="sculpt.smooth", key="NONE", mods=(), cat="工具栏", modes={"SCULPT"}),
+    dict(id="tool_mask", label="遮罩笔刷", op="sculpt.mask_filter", key="NONE", mods=(), cat="工具栏", modes={"SCULPT"}),
 ]
 
 
@@ -153,6 +187,8 @@ def base_hint_lines(mode):
             continue
         b = bindings.get(e["id"], {})
         key = b.get("key", e.get("key", "?"))
+        if key in ("NONE", "?"):
+            continue
         mods = b.get("mods", e.get("mods", []))
         if not mods:
             lines.append((key, e.get("label", "")))
@@ -186,6 +222,8 @@ def modifier_hint_lines(mode, mods):
             continue
         b = bindings.get(e["id"], {})
         key = b.get("key", e.get("key", "?"))
+        if key in ("NONE", "?"):
+            continue
         emods = b.get("mods", e.get("mods", []))
         if not emods:
             continue
