@@ -312,7 +312,8 @@ def handle_auto_start_change(self, context):
 
 
 def register_app_handlers():
-    bpy.app.handlers.load_post.append(_load_post_handler)
+    if _load_post_handler not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_load_post_handler)
 
 
 def unregister_app_handlers():

@@ -38,7 +38,7 @@ from . import panels
 bl_info = {
     "name": "Key Hint",
     "author": "Noct2vis",
-    "version": (0, 2, 1),
+    "version": (0, 2, 2),
     "blender": (3, 0, 0),
     "location": "3D Viewport > Sidebar > Key Hint",
     "description": (
@@ -52,12 +52,20 @@ bl_info = {
 }
 
 
+def _register_class(cls):
+    """Register a class, tolerating 'already registered' (idempotent)."""
+    try:
+        bpy.utils.register_class(cls)
+    except (RuntimeError, ValueError):
+        pass
+
+
 def register():
-    bpy.utils.register_class(prefs.KeyHintAddonPreferences)
+    _register_class(prefs.KeyHintAddonPreferences)
     panels.register_notes()
-    bpy.utils.register_class(panels.KEYHINT_PT_panel)
-    bpy.utils.register_class(core.KeyHintCaptureOperator)
-    bpy.utils.register_class(core.KeyHintRestartOperator)
+    _register_class(panels.KEYHINT_PT_panel)
+    _register_class(core.KeyHintCaptureOperator)
+    _register_class(core.KeyHintRestartOperator)
     core.register_enable_property()
     core.register_app_handlers()
     core.register_auto_start()

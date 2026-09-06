@@ -162,12 +162,19 @@ class KEYHINT_PT_panel(bpy.types.Panel):
 
 
 def register_notes():
-    bpy.utils.register_class(KeyHintNote)
-    bpy.utils.register_class(KeyHintEditNoteOperator)
-    bpy.types.Scene.key_hint_notes = CollectionProperty(type=KeyHintNote)
-    bpy.types.Scene.key_hint_search = StringProperty(
-        name="Search", description="Filter shortcuts by name or key",
-        default="")
+    def _reg(cls):
+        try:
+            bpy.utils.register_class(cls)
+        except (RuntimeError, ValueError):
+            pass
+    _reg(KeyHintNote)
+    _reg(KeyHintEditNoteOperator)
+    if not hasattr(bpy.types.Scene, "key_hint_notes"):
+        bpy.types.Scene.key_hint_notes = CollectionProperty(type=KeyHintNote)
+    if not hasattr(bpy.types.Scene, "key_hint_search"):
+        bpy.types.Scene.key_hint_search = StringProperty(
+            name="Search", description="Filter shortcuts by name or key",
+            default="")
 
 
 def unregister_notes():
