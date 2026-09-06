@@ -43,19 +43,12 @@ from . import hints
 from . import draw as hud_draw
 from .prefs import get_prefs
 
-_MODIFIER_KEY_TYPES = (
-    "LEFT_SHIFT", "RIGHT_SHIFT",
-    "LEFT_CTRL", "RIGHT_CTRL",
-    "LEFT_ALT", "RIGHT_ALT",
-    "OSKEY",
-)
-
-# Time in seconds a modifier stays "fresh" if we stop seeing updates,
-# so the panel does not blink while the user is idle.
-_STALE_MODIFIER_SECS = 1.2
-
-# How often the overlay refreshes.
-_TIMER_STEP = 0.1
+# Time in seconds a modifier stays "fresh" if we stop seeing updates.
+_STALE_MODIFIER_SECS = 0.6
+# How often the overlay refreshes / rescans the keymap.
+_TIMER_STEP = 0.15
+# Minimum interval between full keymap rescans (they walk many items).
+_RESCAN_INTERVAL = 1.0
 
 
 def _blender_at_least(major, minor, patch=0):
@@ -64,29 +57,28 @@ def _blender_at_least(major, minor, patch=0):
 
 
 class KeyHintState:
-    """Global state shared between the running operator and draw callbacks.
-
-    Kept as a small plain object on the operator so add-on re-registration
-    (F8 style reload) does not leak stale references.
-    """
+    """Global state shared between the running operator and draw callbacks."""
 
     def __init__(self):
         self.running = False
-        self.handlers = []          # (space, region_type, handle)
+        self.handlers = []          # draw handler handles
         self.timers = []            # timer handles
         self.last_event = 0.0
 
-        # Currently held modifiers (canonical names, e.g. {"ctrl"}).
+        # Currently held modifier attribute-names, e.g. {"ctrl"}.
         self.held = set()
         self.held_since = 0.0
 
-        # Last pressed non-modifier keys, newest first. Each item:
-        #   (time, [modifier names], key_display_name)
+        # Last pressed non-modifier keys, newest first:
+        #   (time, [mod attrs], key_display, event_type)
         self.pressed = []
 
-        # Cached dynamic hints for the current context.
-        self.hints = []
-        self.hints_as_of = 0.0
+        # Cached scan of the current context (list of entry dicts) + context
+        # signature it was computed for + when.
+        self.entries = []
+        self.scan_key = None        # (area.type, mode)
+        self.scan_at = 0.0
+        self.mode_title = ""
 
 
 def _canonical_modifier(event_type):
@@ -102,32 +94,36 @@ def _canonical_modifier(event_type):
 
 
 def _event_modifier_flags(event):
-    """Set of modifiers reported by the event's own boolean flags."""
     flags = set()
-    for attr, name in (("ctrl", "ctrl"), ("shift", "shift"),
-                       ("alt", "alt"), ("oskey", "oskey")):
+    for attr in ("ctrl", "shift", "alt", "oskey"):
         if getattr(event, attr, False):
-            flags.add(name)
+            flags.add(attr)
     return flags
 
 
+# Tap types we do not want to show as "a key was pressed".
+_IGNORED_PRESS_TYPES = {
+    "NONE", "", "MOUSEMOVE", "INBETWEEN_MOUSEMOVE", "TIMER",
+    "WINDOW_DEACTIVATE", "TEXTINPUT",
+}
+
+
+def hints_key_name(mod):
+    return {
+        "ctrl": "Ctrl", "shift": "Shift", "alt": "Alt", "oskey": "OS",
+    }.get(mod, mod or "")
+
+
 class KeyHintCaptureOperator(bpy.types.Operator):
-    """Passive modal observer: watches keys without consuming them."""
+    """Passive modal observer that keeps the HUD alive and refreshed."""
 
     bl_idname = "key_hint.capture"
     bl_label = "Key Hint"
-    bl_description = "Capture keys for the Key Hint HUD"
-    # On Blender >= 4.2 MODAL_PRIORITY lets a passive observer run cleanly
-    # alongside other modal operators; PASS_THROUGH still forwards everything.
+    bl_description = "Always-on shortcut reference HUD for Key Hint"
     bl_options = {"REGISTER", "MODAL_PRIORITY"} \
         if _blender_at_least(4, 2, 0) else {"REGISTER"}
 
     state = KeyHintState()
-
-    # --- registration convenience -----------------------------------------
-    @classmethod
-    def poll(cls, context):
-        return context.area is not None
 
     # --- lifecycle --------------------------------------------------------
     def _start(self, context):
@@ -135,21 +131,14 @@ class KeyHintCaptureOperator(bpy.types.Operator):
         if st.running:
             return
         wm = context.window_manager
-
-        # Recurring timer so the overlay keeps refreshing even when idle.
         timer = wm.event_timer_add(_TIMER_STEP, window=context.window)
         st.timers.append(timer)
-
-        # Register the modal handler (this is what feeds us events).
         wm.modal_handler_add(self)
-
-        # Register the POST_PIXEL draw handler for every 3D viewport.
         self._add_draw_handlers(context)
-
         st.running = True
         st.held = set()
         st.pressed = []
-        st.hints = []
+        self._scan_if_needed(context, time.time(), force=True)
         if context.area:
             context.area.tag_redraw()
 
@@ -164,11 +153,10 @@ class KeyHintCaptureOperator(bpy.types.Operator):
             except Exception:       # noqa: BLE001
                 pass
         st.timers.clear()
-
         self._remove_draw_handlers(context)
         st.held.clear()
         st.pressed.clear()
-        st.hints.clear()
+        st.entries = []
         st.running = False
         if context.area:
             context.area.tag_redraw()
@@ -194,6 +182,22 @@ class KeyHintCaptureOperator(bpy.types.Operator):
                 pass
         st.handlers.clear()
 
+    def _scan_if_needed(self, context, now, force=False):
+        st = self.__class__.state
+        area = getattr(context, "area", None)
+        space_type = getattr(area, "type", None) if area else None
+        mode = hints._context_mode(context)
+        key = (space_type, mode)
+        if not force and key == st.scan_key and now - st.scan_at < _RESCAN_INTERVAL:
+            return
+        try:
+            st.entries = hints.collect_entries(context)
+        except Exception:           # noqa: BLE001
+            st.entries = []
+        st.scan_key = key
+        st.scan_at = now
+        st.mode_title = hints.mode_display_name(context)
+
     # --- modal body -------------------------------------------------------
     def modal(self, context, event):
         st = self.__class__.state
@@ -206,11 +210,7 @@ class KeyHintCaptureOperator(bpy.types.Operator):
             return {"PASS_THROUGH"}
 
         now = time.time()
-
-        # Track held modifiers from the event's boolean flags...
         flags = _event_modifier_flags(event)
-        # ...and also react to explicit modifier key press/release events,
-        # which is what happens right when the user presses/releases a mod key.
         event_type = getattr(event, "type", None)
         mod = _canonical_modifier(event_type)
         value = getattr(event, "value", None)
@@ -220,50 +220,22 @@ class KeyHintCaptureOperator(bpy.types.Operator):
             elif value == "RELEASE":
                 flags.discard(mod)
 
-        # Merge: the boolean flags are authoritative when present.
         if flags or mod is not None:
             st.held = flags
             st.held_since = now
 
-        # Forget held modifiers that went stale without a release event
-        # (Blender does not always send RELEASE, e.g. after focus changes).
         if st.held and (now - st.held_since) > _STALE_MODIFIER_SECS:
             st.held = set()
 
-        # Record a clean tap of a non-modifier key (for the "pressed keys"
-        # section of the HUD).
-        if mod is None and value == "PRESS":
+        if mod is None and value == "PRESS" and event_type not in _IGNORED_PRESS_TYPES:
             key_name = hints.key_display_name(event_type)
-            if event_type not in _IGNORED_PRESS_TYPES:
-                st.pressed.insert(0, (now, sorted(st.held),
-                                      key_name, event_type))
-                st.pressed = st.pressed[:8]
+            st.pressed.insert(0, (now, sorted(st.held), key_name, event_type))
+            st.pressed = st.pressed[:6]
 
-        self._update_hints(context, st, now)
+        # Periodically keep the reference in sync with mode/tool changes.
+        self._scan_if_needed(context, now)
         self._schedule_redraw(context)
         return {"PASS_THROUGH"}
-
-    def _update_hints(self, context, st, now):
-        prefs = get_prefs()
-        if prefs is None or not prefs.show_hints:
-            st.hints = []
-            return
-        # Only rescan when the held modifiers or the area actually changed.
-        cache_key = (frozenset(st.held),
-                     getattr(context.area, "type", None))
-        if (st.hints and cache_key == getattr(st, "_cache_key", None)
-                and now - st.hints_as_of < 1.0):
-            return
-        if not st.held:
-            st.hints = []
-        else:
-            try:
-                combos = hints.collect_hints(context, st.held)
-            except Exception:       # noqa: BLE001 - never break the observer
-                combos = []
-            st.hints = combos[: prefs.max_hints if prefs else 12]
-        st.hints_as_of = now
-        st._cache_key = cache_key
 
     def _schedule_redraw(self, context):
         screen = getattr(context, "screen", None)
@@ -282,7 +254,6 @@ class KeyHintCaptureOperator(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def execute(self, context):
-        # Allow bpy.ops.key_hint.capture() (no event available) to toggle too.
         st = self.__class__.state
         if st.running:
             self._stop(context)
@@ -291,50 +262,40 @@ class KeyHintCaptureOperator(bpy.types.Operator):
         return {"FINISHED"}
 
 
-# Tap types we do not want to show as "a key was pressed".
-_IGNORED_PRESS_TYPES = {
-    "NONE", "", "MOUSEMOVE", "INBETWEEN_MOUSEMOVE", "TIMER",
-    "WINDOW_DEACTIVATE", "TEXTINPUT",
-}
-
-
 # ---------------------------------------------------------------------------
 # Public helpers used by the draw module ------------------------------------
 # ---------------------------------------------------------------------------
 def snapshot():
-    """Return a plain dict describing the current HUD content.
-
-    Used by the draw callback so it does not need to reach into the operator
-    state directly.
-    """
+    """Return a plain dict describing the current HUD content."""
     st = KeyHintCaptureOperator.state
     prefs = get_prefs()
+
+    entries = st.entries
+    base, _ = hints.split_base_and_modifier(entries)
+
+    # Which modifier group is currently held (None when idle).
+    held_attrs = set(st.held)
+    extra = []
+    if held_attrs and (prefs is None or prefs.show_hints):
+        extra = hints.entries_for_modifiers(entries, held_attrs)
+
     return {
         "running": st.running,
+        "mode": st.mode_title,
+        "base": base if (prefs is None or prefs.show_fundamentals) else [],
         "held": [hints_key_name(m) for m in sorted(st.held)],
+        "held_attrs": sorted(st.held),
+        "extra": extra,
         "pressed": [
             {"mods": [hints_key_name(m) for m in mods],
              "key": key, "event_type": etype}
             for (_t, mods, key, etype) in st.pressed
         ],
-        "hints": st.hints,
         "prefs": prefs,
     }
 
 
-def hints_key_name(mod):
-    return {
-        "ctrl": "Ctrl", "shift": "Shift", "alt": "Alt", "oskey": "OS",
-    }.get(mod, mod or "")
-
-
 def register_enable_property():
-    """Expose a boolean on WindowManager that toggles the capture.
-
-    This lets the UI show a check-box that reflects the live state and can be
-    driven from scripts, similar to how many Blender tools expose an "enabled"
-    toggle.
-    """
     if hasattr(bpy.types.WindowManager, "key_hint_enabled"):
         return
 
@@ -342,7 +303,6 @@ def register_enable_property():
         return KeyHintCaptureOperator.state.running
 
     def set_enabled(_self, value):
-        # Modal operators can only start/stop from a real UI context.
         for wm in bpy.data.window_managers:
             for win in wm.windows:
                 for area in win.screen.areas:
@@ -361,11 +321,10 @@ def register_enable_property():
                               KeyHintCaptureOperator.state.running):
                             op(override, "INVOKE_DEFAULT")
                         return
-        # If no 3D viewport is present, nothing to do.
 
     bpy.types.WindowManager.key_hint_enabled = bpy.props.BoolProperty(
         name="Key Hint",
-        description="Start / stop the Key Hint HUD overlay",
+        description="Start / stop the Key Hint reference HUD overlay",
         get=get_enabled,
         set=set_enabled,
     )
@@ -380,10 +339,6 @@ def unregister_enable_property():
 # Draw callback -------------------------------------------------------------
 # ---------------------------------------------------------------------------
 def _draw_callback_px(area_ptr):
-    """POST_PIXEL draw handler: args is the target 3D area pointer.
-
-    The pointer lets us find the correct region even if several windows exist.
-    """
     area = _find_area(area_ptr)
     if area is None:
         return
@@ -413,7 +368,6 @@ def is_running():
 
 
 def _find_view3d_override():
-    """Return an override context pointing at the first usable 3D viewport."""
     for wm in bpy.data.window_managers:
         for win in wm.windows:
             screen = getattr(win, "screen", None)
@@ -426,17 +380,12 @@ def _find_view3d_override():
                               None)
                 if region is None:
                     continue
-                return {
-                    "window": win,
-                    "screen": screen,
-                    "area": area,
-                    "region": region,
-                }
+                return {"window": win, "screen": screen,
+                        "area": area, "region": region}
     return None
 
 
 def start_capture(verbose=True):
-    """Try to start the capture overlay. Returns True on success."""
     if is_running():
         return True
     override = _find_view3d_override()
@@ -455,7 +404,6 @@ def start_capture(verbose=True):
 
 
 def stop_capture(verbose=True):
-    """Try to stop the capture overlay."""
     if not is_running():
         return True
     override = _find_view3d_override()
@@ -472,26 +420,21 @@ def stop_capture(verbose=True):
 
 
 # --- auto start -----------------------------------------------------------
-# Screencast-Keys-style auto start: when the add-on is enabled (or a file is
-# loaded) and the user asked for auto start, keep trying to open the capture
-# until a 3D viewport is usable.  We use an app timer so the attempt happens
-# after Blender's context is ready.
 def _auto_start_loop():
     if is_running():
-        return None                    # done
+        return None
     prefs = get_prefs()
     if prefs is not None and not prefs.auto_start:
-        return None                    # disabled
+        return None
     if start_capture(verbose=False):
         return None
-    return 1.0                         # retry once a second
+    return 1.0
 
 
 _AUTO_TIMER = None
 
 
 def register_auto_start():
-    """Start the auto-start timer (no-op if already running / background)."""
     global _AUTO_TIMER
     if bpy.app.background:
         return
@@ -499,7 +442,7 @@ def register_auto_start():
         return
     try:
         _AUTO_TIMER = bpy.app.timers.register(_auto_start_loop)
-    except Exception:                  # noqa: BLE001  (already registered)
+    except Exception:                  # noqa: BLE001
         _AUTO_TIMER = None
 
 
@@ -515,12 +458,10 @@ def unregister_auto_start():
 
 @bpy.app.handlers.persistent
 def _load_post_handler(_dummy):
-    # Re-arm auto start after every new/loaded file.
     register_auto_start()
 
 
 def handle_auto_start_change(self, context):
-    """Update callback wired to the auto_start preference."""
     prefs = get_prefs()
     if prefs is not None and prefs.auto_start:
         register_auto_start()

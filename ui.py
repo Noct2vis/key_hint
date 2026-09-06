@@ -42,10 +42,11 @@ class KEYHINT_PT_panel(bpy.types.Panel):
         prefs = prefs.preferences
 
         col = layout.column(align=True)
-        col.label(text="Display")
-        col.prop(prefs, "show_pressed_keys")
+        col.label(text="Reference")
+        col.prop(prefs, "show_fundamentals")
         col.prop(prefs, "show_hints")
         col.prop(prefs, "max_hints")
+        col.prop(prefs, "show_pressed_keys")
 
         col.separator()
         col.label(text="Style")

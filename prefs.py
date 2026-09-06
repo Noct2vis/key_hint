@@ -46,16 +46,25 @@ class KeyHintAddonPreferences(bpy.types.AddonPreferences):
     )
 
     show_pressed_keys: BoolProperty(
-        name="Show pressed keys",
+        name="Show pressed keys row",
         description="Show the currently pressed keys / modifiers",
+        default=False,
+    )
+
+    show_fundamentals: BoolProperty(
+        name="Always show base shortcuts",
+        description=(
+            "Always display the current mode's no-modifier shortcuts "
+            "(G move, R rotate, S scale, ...) in the corner"
+        ),
         default=True,
     )
 
     show_hints: BoolProperty(
-        name="Show shortcut hints while a modifier is held",
+        name="Append modifier group while held",
         description=(
-            "While Ctrl/Shift/Alt is held, list real shortcuts from your "
-            "active keymap that start with that modifier"
+            "While Ctrl/Shift/Alt is held, additionally list the shortcuts "
+            "that start with that modifier, below the base shortcuts"
         ),
         default=True,
     )
@@ -82,11 +91,11 @@ class KeyHintAddonPreferences(bpy.types.AddonPreferences):
     )
 
     max_hints: IntProperty(
-        name="Max hints",
-        description="Maximum number of shortcut hints to draw at once",
-        default=12,
+        name="Max entries",
+        description="Maximum number of shortcut entries shown per group",
+        default=40,
         min=1,
-        max=60,
+        max=120,
     )
 
     background_opacity: FloatProperty(
@@ -130,8 +139,9 @@ class KeyHintAddonPreferences(bpy.types.AddonPreferences):
         col.separator()
 
         col.label(text="Display")
-        col.prop(self, "show_pressed_keys")
+        col.prop(self, "show_fundamentals")
         col.prop(self, "show_hints")
+        col.prop(self, "show_pressed_keys")
         col.prop(self, "max_hints")
         col.separator()
 

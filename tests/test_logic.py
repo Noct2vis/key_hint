@@ -97,10 +97,14 @@ def main():
         check("relevant includes %s" % want, want in names)
 
     # 4. Hint scan must be safe (return list) even headless / no items.
-    res = hints.collect_hints(ctx, ["ctrl"])
-    check("collect_hints returns list", isinstance(res, list))
-    # held modifiers subset logic
-    check("empty held -> []", hints.collect_hints(ctx, []) == [])
+    res = hints.collect_entries(ctx)
+    check("collect_entries returns list", isinstance(res, list))
+
+    base, others = hints.split_base_and_modifier([])
+    check("split empty -> ([], [])", base == [] and others == [])
+
+    check("entries_for_modifiers([], {}) -> []",
+          hints.entries_for_modifiers([], {"ctrl"}) == [])
 
     # 5. Modifier name helper.
     class _Ev:
@@ -110,6 +114,19 @@ def main():
         oskey = False
     hm = hints.held_modifier_names(_Ev())
     check("held_modifier_names -> ['Alt','Ctrl']", sorted(hm) == ["Alt", "Ctrl"])
+
+    # Fake entry grouping.
+    fake = [
+        {"mods": [], "key": "G", "label": "Move"},
+        {"mods": ["Ctrl"], "key": "C", "label": "Copy"},
+        {"mods": ["Ctrl", "Shift"], "key": "C", "label": "Link Copy"},
+    ]
+    b2, o2 = hints.split_base_and_modifier(fake)
+    check("split finds base", len(b2) == 1 and b2[0]["key"] == "G")
+    check("split finds modifiers", len(o2) == 2)
+    held = hints.entries_for_modifiers(fake, ["ctrl"])
+    check("entries_for_modifiers ctrl includes ctrl+shift",
+          len(held) == 2 and all("Ctrl" in e["mods"] for e in held))
 
     print("\n%d failures" % len(_failures))
     return 1 if _failures else 0

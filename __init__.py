@@ -48,7 +48,7 @@ import bpy  # noqa: E402  (guarantee bpy is in scope for bl_info consumers)
 bl_info = {
     "name": "Key Hint",
     "author": "Noct2vis",
-    "version": (0, 1, 0),
+    "version": (0, 1, 1),
     "blender": (3, 0, 0),
     "location": "3D Viewport > Sidebar > Key Hint",
     "description": (
