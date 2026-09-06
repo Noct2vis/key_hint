@@ -106,20 +106,19 @@ def _current_mode_key():
 
 
 def _build_payload():
-    """Build the HUD payload: title + lines (combo, label)."""
+    """Build the HUD payload: title + lines (combo, label).
+
+    Priority (highest first):
+      1. active operation hint (e.g. after Ctrl+R -> loop-cut follow-ups)
+      2. held modifier group (Ctrl/Shift/Alt)
+      3. base list
+    """
     _, mode_key = _current_mode_key()
     title = constants.base_title_for_mode(mode_key)
     lines = []
 
     op = _active_op
-    # Modifier group has priority: holding Ctrl/Shift/Alt must always show
-    # that modifier's shortcuts, even if an operation key was tapped earlier.
-    if _held_mods:
-        names = [constants._MOD_NAME[m] for m in
-                 ("ctrl", "shift", "alt", "oskey") if m in _held_mods]
-        title = " + ".join(names) + " +"
-        lines = constants.modifier_hint_lines(mode_key, _held_mods)
-    elif op is not None and (time.time() - _active_op_since) < _OP_HINT_TTL:
+    if op is not None and (time.time() - _active_op_since) < _OP_HINT_TTL:
         h = constants.operation_hint_for(op, mode_key)
         if h is not None:
             title = h["title"]
@@ -128,8 +127,12 @@ def _build_payload():
                 lines.append((combo, it.get("label", "")))
         else:
             lines = constants.base_hint_lines(mode_key)
+    elif _held_mods:
+        names = [constants._MOD_NAME[m] for m in
+                 ("ctrl", "shift", "alt", "oskey") if m in _held_mods]
+        title = " + ".join(names) + " +"
+        lines = constants.modifier_hint_lines(mode_key, _held_mods)
     else:
-        # Base: mode-aware no-modifier shortcuts.
         lines = constants.base_hint_lines(mode_key)
 
     return {"title": title, "lines": lines,
@@ -319,16 +322,20 @@ class KeyHintWatchOperator(bpy.types.Operator):
         elif evt_type == "WINDOW_DEACTIVATE":
             _held_mods.clear()
 
-        # --- single-key operation hint (no modifier held) ----------------
-        if value == "PRESS" and evt_type in ("G", "R", "S", "E", "K", "I") \
-                and not _held_mods:
-            _active_op = evt_type
-            _active_op_since = time.time()
-        elif value == "PRESS" and evt_type in ("ESC", "RIGHTMOUSE",
-                                               "LEFTMOUSE", "RET",
-                                               "NUMPAD_ENTER"):
-            # Confirm/cancel returns to base hints.
-            _active_op = None
+        # --- operation hint (fires the moment the operation key is pressed) --
+        ctrl = getattr(event, "ctrl", False)
+        if value == "PRESS":
+            # Combined modal tools first: Ctrl+R loop-cut, Ctrl+B bevel.
+            if ctrl and evt_type in ("R", "B"):
+                _active_op = "CTRL_" + evt_type
+                _active_op_since = time.time()
+            elif evt_type in ("G", "R", "S", "E", "K", "I"):
+                _active_op = evt_type
+                _active_op_since = time.time()
+            elif evt_type in ("ESC", "RIGHTMOUSE", "LEFTMOUSE", "RET",
+                              "NUMPAD_ENTER"):
+                # Confirm/cancel returns to base hints.
+                _active_op = None
 
         # Expire stale op hint.
         if _active_op is not None and \
