@@ -61,7 +61,7 @@ _redraw_timer = None
 _active_op = None
 _active_op_since = 0.0
 # How long an operation hint stays before reverting to base (seconds).
-_OP_HINT_TTL = 30.0
+_OP_HINT_TTL = 8.0
 
 # Held modifier set (attribute names: ctrl/shift/alt/oskey).
 _held_mods = set()
@@ -112,19 +112,22 @@ def _build_payload():
     lines = []
 
     op = _active_op
-    if op is not None and (time.time() - _active_op_since) < _OP_HINT_TTL:
+    # Modifier group has priority: holding Ctrl/Shift/Alt must always show
+    # that modifier's shortcuts, even if an operation key was tapped earlier.
+    if _held_mods:
+        names = [constants._MOD_NAME[m] for m in
+                 ("ctrl", "shift", "alt", "oskey") if m in _held_mods]
+        title = " + ".join(names) + " +"
+        lines = constants.modifier_hint_lines(mode_key, _held_mods)
+    elif op is not None and (time.time() - _active_op_since) < _OP_HINT_TTL:
         h = constants.operation_hint_for(op, mode_key)
         if h is not None:
             title = h["title"]
             for it in h["items"]:
                 combo = it.get("key", "?")
                 lines.append((combo, it.get("label", "")))
-    elif _held_mods:
-        # A modifier is held -> show shortcuts that start with it.
-        names = [constants._MOD_NAME[m] for m in
-                 ("ctrl", "shift", "alt", "oskey") if m in _held_mods]
-        title = " + ".join(names) + " +"
-        lines = constants.modifier_hint_lines(mode_key, _held_mods)
+        else:
+            lines = constants.base_hint_lines(mode_key)
     else:
         # Base: mode-aware no-modifier shortcuts.
         lines = constants.base_hint_lines(mode_key)
@@ -297,45 +300,30 @@ class KeyHintWatchOperator(bpy.types.Operator):
 
         evt_type = getattr(event, "type", None)
         value = getattr(event, "value", None)
-        ctrl = getattr(event, "ctrl", False)
-        shift = getattr(event, "shift", False)
-        alt = getattr(event, "alt", False)
-        oskey = getattr(event, "oskey", False)
 
-        # --- held modifiers (from event flags + explicit key events) -----
-        if evt_type in ("LEFT_CTRL", "RIGHT_CTRL", "LEFT_SHIFT", "RIGHT_SHIFT",
-                        "LEFT_ALT", "RIGHT_ALT", "OSKEY"):
-            mod = {"LEFT_CTRL": "ctrl", "RIGHT_CTRL": "ctrl",
-                   "LEFT_SHIFT": "shift", "RIGHT_SHIFT": "shift",
-                   "LEFT_ALT": "alt", "RIGHT_ALT": "alt",
-                   "OSKEY": "oskey"}.get(evt_type)
-            if mod:
-                if value == "PRESS":
-                    _held_mods.add(mod)
-                elif value == "RELEASE":
-                    _held_mods.discard(mod)
-        else:
-            # Rebuild from event flags (authoritative for non-modifier events).
-            flags = set()
-            if ctrl:
-                flags.add("ctrl")
-            if shift:
-                flags.add("shift")
-            if alt:
-                flags.add("alt")
-            if oskey:
-                flags.add("oskey")
-            _held_mods = flags
+        # --- held modifiers ----------------------------------------------
+        # Modifier keys are tracked by their own PRESS/RELEASE events only,
+        # so the HUD flips to the modifier group the moment it is pressed and
+        # flips back the moment it is released (no latching). We never rebuild
+        # the set from the boolean flags of other events (TIMER etc. would
+        # corrupt it).
+        mod = {"LEFT_CTRL": "ctrl", "RIGHT_CTRL": "ctrl",
+               "LEFT_SHIFT": "shift", "RIGHT_SHIFT": "shift",
+               "LEFT_ALT": "alt", "RIGHT_ALT": "alt",
+               "OSKEY": "oskey"}.get(evt_type)
+        if mod is not None:
+            if value == "PRESS":
+                _held_mods.add(mod)
+            elif value == "RELEASE":
+                _held_mods.discard(mod)
+        elif evt_type == "WINDOW_DEACTIVATE":
+            _held_mods.clear()
 
-        # --- key: switch operation hint ---------------------------------
-        if value == "PRESS" and evt_type in constants.TRIGGER_KEYS:
-            # Ctrl+R / Ctrl+B are special combined triggers.
-            if ctrl and evt_type in ("R", "B"):
-                _active_op = "CTRL_" + evt_type
-                _active_op_since = time.time()
-            elif evt_type in ("G", "R", "S", "E", "K", "I"):
-                _active_op = evt_type
-                _active_op_since = time.time()
+        # --- single-key operation hint (no modifier held) ----------------
+        if value == "PRESS" and evt_type in ("G", "R", "S", "E", "K", "I") \
+                and not _held_mods:
+            _active_op = evt_type
+            _active_op_since = time.time()
         elif value == "PRESS" and evt_type in ("ESC", "RIGHTMOUSE",
                                                "LEFTMOUSE", "RET",
                                                "NUMPAD_ENTER"):
