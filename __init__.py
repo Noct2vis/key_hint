@@ -38,7 +38,7 @@ from . import panels
 bl_info = {
     "name": "Key Hint",
     "author": "Noct2vis",
-    "version": (0, 2, 2),
+    "version": (0, 3, 0),
     "blender": (3, 0, 0),
     "location": "3D Viewport > Sidebar > Key Hint",
     "description": (
@@ -66,6 +66,7 @@ def register():
     _register_class(panels.KEYHINT_PT_panel)
     _register_class(core.KeyHintCaptureOperator)
     _register_class(core.KeyHintRestartOperator)
+    _register_class(core.KeyHintWatchOperator)
     core.register_enable_property()
     core.register_app_handlers()
     core.register_auto_start()
@@ -76,6 +77,10 @@ def unregister():
     core.unregister_auto_start()
     core.unregister_app_handlers()
     core.unregister_enable_property()
+    try:
+        bpy.utils.unregister_class(core.KeyHintWatchOperator)
+    except RuntimeError:
+        pass
     try:
         bpy.utils.unregister_class(core.KeyHintRestartOperator)
     except RuntimeError:

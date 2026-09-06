@@ -15,35 +15,24 @@
 # ##### END GPL LICENSE BLOCK #####
 
 """
-Shortcut database and keymap resolution.
+快捷键数据库 + 键位解析 + 上下文提示表。
 
-The curated reference table of common Blender shortcuts, organised by
-category and by the context they apply to.  The *actual* key shown to the
-user is resolved live from their keyconfig (see resolve()), so a re-bound
-shortcut is displayed with the user's key and flagged as custom (✱).
+* SHORTCUTS —— 侧边栏参考用的分类快捷键数据库（中文标签）。
+* BASE_HINTS —— 初始（未按任何操作键）时 HUD 显示的基础/文件操作。
+* OPERATION_HINTS —— 按下某个“操作触发键”后，HUD 替换成的后续操作提示表。
 
-Each entry:
-  id       - stable key used for notes / dedupe
-  label    - human friendly action name
-  op       - operator idname(s) (string or list) used to find the binding
-  key      - Blender default key type (e.g. 'G', 'NUMPAD_1', 'SPACE')
-  mods     - tuple of default modifier names ('Ctrl','Shift','Alt','OS')
-  cat      - category label
-  modes    - set of context modes this applies to; None = everywhere
-  tool     - optional: only show when this tool/context flag is set (unused)
+所有“实际按键”仍由 resolve_bindings() 从用户 keyconfig 动态解析，自定义键位
+用 ✱ 标记。OPERATION_HINTS 里的按键是“进入该操作后”的引导键，属于该操作的
+后续子操作（例如按 G 后按 X/Y/Z 锁轴、数字吸附、LMB 确认），用静态中文说明。
 """
 
 import bpy
 
-# ---------------------------------------------------------------------------
-# Modifier order / display helpers ------------------------------------------
-# ---------------------------------------------------------------------------
 MOD_ORDER = (("ctrl", "Ctrl"), ("shift", "Shift"), ("alt", "Alt"),
              ("oskey", "OS"))
 
 
 def mods_of_item(item):
-    """Display modifier names a keymap item requires."""
     out = []
     for attr, name in MOD_ORDER:
         if getattr(item, attr, False):
@@ -52,88 +41,215 @@ def mods_of_item(item):
 
 
 # ---------------------------------------------------------------------------
-# Database ----------------------------------------------------------------
+# 侧边栏参考数据库（中文标签） ----------------------------------------------
 # ---------------------------------------------------------------------------
-# Modes use the same strings as context.mode in a 3D viewport, e.g.:
-# OBJECT, EDIT_MESH, EDIT_CURVE, SCULPT, POSE, VERTEX_PAINT, ...
-# None means the entry is shown regardless of mode.
-
-_E = None  # everywhere
-
 SHORTCUTS = [
-    # ---- Transform ------------------------------------------------------
-    dict(id="move", label="Move", op="transform.translate", key="G", mods=(), cat="Transform", modes=None),
-    dict(id="rotate", label="Rotate", op="transform.rotate", key="R", mods=(), cat="Transform", modes=None),
-    dict(id="scale", label="Scale", op="transform.resize", key="S", mods=(), cat="Transform", modes=None),
-    dict(id="move_dup", label="Duplicate and move", op="object.duplicate_move", key="D", mods=("Shift",), cat="Transform", modes={"OBJECT"}),
-    dict(id="snap", label="Snap", op="transform.snap_type", key="TAB", mods=("Shift",), cat="Transform", modes={"OBJECT", "EDIT_MESH", "POSE"}),
-    dict(id="apply_transform", label="Apply (transform)", op="object.transform_apply", key="A", mods=("Ctrl",), cat="Transform", modes={"OBJECT"}),
+    # ---- 变换 ------------------------------------------------------------
+    dict(id="move", label="移动", op="transform.translate", key="G", mods=(), cat="变换", modes=None),
+    dict(id="rotate", label="旋转", op="transform.rotate", key="R", mods=(), cat="变换", modes=None),
+    dict(id="scale", label="缩放", op="transform.resize", key="S", mods=(), cat="变换", modes=None),
+    dict(id="move_dup", label="复制并移动", op="object.duplicate_move", key="D", mods=("Shift",), cat="变换", modes={"OBJECT"}),
+    dict(id="snap", label="吸附切换", op="transform.snap_type", key="TAB", mods=("Shift",), cat="变换", modes={"OBJECT", "EDIT_MESH", "POSE"}),
+    dict(id="apply_transform", label="应用变换", op="object.transform_apply", key="A", mods=("Ctrl",), cat="变换", modes={"OBJECT"}),
 
-    # ---- Navigation / view ----------------------------------------------
-    dict(id="view_selected", label="Frame selected", op="view3d.view_selected", key="PERIOD", mods=("Shift",), cat="View", modes=None),
-    dict(id="view_all", label="Frame all", op="view3d.view_all", key="HOME", mods=(), cat="View", modes=None),
-    dict(id="toggle_local", label="Toggle local/global view", op="view3d.localview", key="SLASH", mods=(), cat="View", modes=None),
-    dict(id="orbit", label="Orbit viewport", op="view3d.rotate", key="MIDDLEMOUSE", mods=(), cat="View", modes=None, mouse=True),
-    dict(id="pan", label="Pan viewport", op="view3d.move", key="MIDDLEMOUSE", mods=("Shift",), cat="View", modes=None, mouse=True),
-    dict(id="zoom", label="Zoom viewport", op="view3d.zoom", key="MIDDLEMOUSE", mods=("Ctrl",), cat="View", modes=None, mouse=True),
-    dict(id="front_view", label="Front view", op="view3d.view_axis", key="NUMPAD_1", mods=(), cat="View", modes=None),
-    dict(id="right_view", label="Right view", op="view3d.view_axis", key="NUMPAD_3", mods=(), cat="View", modes=None),
-    dict(id="top_view", label="Top view", op="view3d.view_axis", key="NUMPAD_7", mods=(), cat="View", modes=None),
-    dict(id="camera_view", label="Camera view", op="view3d.view_camera", key="NUMPAD_0", mods=(), cat="View", modes=None),
-    dict(id="persp_ortho", label="Perspective / Orthographic", op="view3d.view_persportho", key="NUMPAD_5", mods=(), cat="View", modes=None),
+    # ---- 视图 ------------------------------------------------------------
+    dict(id="view_selected", label="框选所选", op="view3d.view_selected", key="PERIOD", mods=("Shift",), cat="视图", modes=None),
+    dict(id="view_all", label="框选全部", op="view3d.view_all", key="HOME", mods=(), cat="视图", modes=None),
+    dict(id="toggle_local", label="局部/全局视图", op="view3d.localview", key="SLASH", mods=(), cat="视图", modes=None),
+    dict(id="orbit", label="旋转视角", op="view3d.rotate", key="MIDDLEMOUSE", mods=(), cat="视图", modes=None, mouse=True),
+    dict(id="pan", label="平移视角", op="view3d.move", key="MIDDLEMOUSE", mods=("Shift",), cat="视图", modes=None, mouse=True),
+    dict(id="zoom", label="缩放视角", op="view3d.zoom", key="MIDDLEMOUSE", mods=("Ctrl",), cat="视图", modes=None, mouse=True),
+    dict(id="front_view", label="前视图", op="view3d.view_axis", key="NUMPAD_1", mods=(), cat="视图", modes=None),
+    dict(id="right_view", label="右视图", op="view3d.view_axis", key="NUMPAD_3", mods=(), cat="视图", modes=None),
+    dict(id="top_view", label="顶视图", op="view3d.view_axis", key="NUMPAD_7", mods=(), cat="视图", modes=None),
+    dict(id="camera_view", label="摄像机视图", op="view3d.view_camera", key="NUMPAD_0", mods=(), cat="视图", modes=None),
+    dict(id="persp_ortho", label="透视/正交", op="view3d.view_persportho", key="NUMPAD_5", mods=(), cat="视图", modes=None),
 
-    # ---- Object mode -----------------------------------------------------
-    dict(id="select_all", label="Select all / none", op="object.select_all", key="A", mods=(), cat="Object", modes={"OBJECT"}),
-    dict(id="add_object", label="Add object", op="object.modifier_add", key="A", mods=("Shift",), cat="Object", modes={"OBJECT"}),
-    dict(id="delete_object", label="Delete", op="object.delete", key="X", mods=(), cat="Object", modes={"OBJECT"}),
-    dict(id="duplicate_object", label="Duplicate", op="object.duplicate", key="D", mods=("Shift",), cat="Object", modes={"OBJECT"}),
-    dict(id="join", label="Join objects", op="object.join", key="J", mods=("Ctrl",), cat="Object", modes={"OBJECT"}),
-    dict(id="parent", label="Set parent", op="object.parent_set", key="P", mods=("Ctrl",), cat="Object", modes={"OBJECT"}),
-    dict(id="hide", label="Hide object", op="object.hide_view_set", key="H", mods=(), cat="Object", modes={"OBJECT"}),
-    dict(id="unhide", label="Unhide all", op="object.hide_view_clear", key="H", mods=("Alt",), cat="Object", modes={"OBJECT"}),
-    dict(id="move_to_collection", label="Move to collection", op="object.move_to_collection", key="M", mods=(), cat="Object", modes={"OBJECT"}),
+    # ---- 物体模式 --------------------------------------------------------
+    dict(id="select_all", label="全选/取消全选", op="object.select_all", key="A", mods=(), cat="物体", modes={"OBJECT"}),
+    dict(id="add_object", label="添加物体", op="object.modifier_add", key="A", mods=("Shift",), cat="物体", modes={"OBJECT"}),
+    dict(id="delete_object", label="删除", op="object.delete", key="X", mods=(), cat="物体", modes={"OBJECT"}),
+    dict(id="duplicate_object", label="复制", op="object.duplicate", key="D", mods=("Shift",), cat="物体", modes={"OBJECT"}),
+    dict(id="join", label="合并物体", op="object.join", key="J", mods=("Ctrl",), cat="物体", modes={"OBJECT"}),
+    dict(id="parent", label="设置父级", op="object.parent_set", key="P", mods=("Ctrl",), cat="物体", modes={"OBJECT"}),
+    dict(id="hide", label="隐藏物体", op="object.hide_view_set", key="H", mods=(), cat="物体", modes={"OBJECT"}),
+    dict(id="unhide", label="全部取消隐藏", op="object.hide_view_clear", key="H", mods=("Alt",), cat="物体", modes={"OBJECT"}),
+    dict(id="move_to_collection", label="移到集合", op="object.move_to_collection", key="M", mods=(), cat="物体", modes={"OBJECT"}),
 
-    # ---- Edit mesh -------------------------------------------------------
-    dict(id="edit_toggle", label="Edit / Object mode", op="object.editmode_toggle", key="TAB", mods=(), cat="Mode", modes={"OBJECT", "EDIT_MESH"}),
-    dict(id="loopcut", label="Loop cut", op="mesh.loopcut_slide", key="R", mods=("Ctrl",), cat="Mesh", modes={"EDIT_MESH"}),
-    dict(id="extrude", label="Extrude", op="mesh.extrude_region_move", key="E", mods=(), cat="Mesh", modes={"EDIT_MESH"}),
-    dict(id="inset", label="Inset", op="mesh.inset", key="I", mods=(), cat="Mesh", modes={"EDIT_MESH"}),
-    dict(id="bevel", label="Bevel", op="mesh.bevel", key="B", mods=("Ctrl",), cat="Mesh", modes={"EDIT_MESH"}),
-    dict(id="merge", label="Merge vertices", op="mesh.merge", key="M", mods=(), cat="Mesh", modes={"EDIT_MESH"}),
-    dict(id="knife", label="Knife", op="mesh.knife_tool", key="K", mods=(), cat="Mesh", modes={"EDIT_MESH"}),
-    dict(id="select_loop", label="Select edge loop", op="mesh.loop_multi_select", key="L", mods=("Alt",), cat="Mesh", modes={"EDIT_MESH"}),
-    dict(id="subdivide", label="Subdivide", op="mesh.subdivide", key="E", mods=("Ctrl",), cat="Mesh", modes={"EDIT_MESH"}),
-    dict(id="flip_normals", label="Flip normals", op="mesh.flip_normals", key="N", mods=("Shift", "Alt"), cat="Mesh", modes={"EDIT_MESH"}),
-    dict(id="rip", label="Rip", op="mesh.rip_move", key="V", mods=(), cat="Mesh", modes={"EDIT_MESH"}),
-    dict(id="dissolve", label="Dissolve", op="mesh.dissolve_mode", key="X", mods=("Ctrl",), cat="Mesh", modes={"EDIT_MESH"}),
+    # ---- 编辑（网格） ----------------------------------------------------
+    dict(id="edit_toggle", label="编辑/物体模式", op="object.editmode_toggle", key="TAB", mods=(), cat="模式", modes={"OBJECT", "EDIT_MESH"}),
+    dict(id="loopcut", label="环切", op="mesh.loopcut_slide", key="R", mods=("Ctrl",), cat="网格", modes={"EDIT_MESH"}),
+    dict(id="extrude", label="挤出", op="mesh.extrude_region_move", key="E", mods=(), cat="网格", modes={"EDIT_MESH"}),
+    dict(id="inset", label="内插面", op="mesh.inset", key="I", mods=(), cat="网格", modes={"EDIT_MESH"}),
+    dict(id="bevel", label="倒角", op="mesh.bevel", key="B", mods=("Ctrl",), cat="网格", modes={"EDIT_MESH"}),
+    dict(id="merge", label="合并顶点", op="mesh.merge", key="M", mods=(), cat="网格", modes={"EDIT_MESH"}),
+    dict(id="knife", label="切割", op="mesh.knife_tool", key="K", mods=(), cat="网格", modes={"EDIT_MESH"}),
+    dict(id="select_loop", label="选择循环边", op="mesh.loop_multi_select", key="L", mods=("Alt",), cat="网格", modes={"EDIT_MESH"}),
+    dict(id="subdivide", label="细分", op="mesh.subdivide", key="E", mods=("Ctrl",), cat="网格", modes={"EDIT_MESH"}),
+    dict(id="flip_normals", label="翻转法线", op="mesh.flip_normals", key="N", mods=("Shift", "Alt"), cat="网格", modes={"EDIT_MESH"}),
+    dict(id="rip", label="撕裂", op="mesh.rip_move", key="V", mods=(), cat="网格", modes={"EDIT_MESH"}),
+    dict(id="dissolve", label="溶解", op="mesh.dissolve_mode", key="X", mods=("Ctrl",), cat="网格", modes={"EDIT_MESH"}),
 
-    # ---- Selection / general edit ---------------------------------------
-    dict(id="select_more", label="Grow selection", op="mesh.select_more", key="PADPLUSKEY", mods=("Ctrl",), cat="Selection", modes={"EDIT_MESH"}),
-    dict(id="select_less", label="Shrink selection", op="mesh.select_less", key="PADMINUS", mods=("Ctrl",), cat="Selection", modes={"EDIT_MESH"}),
-    dict(id="select_invert", label="Invert selection", op="mesh.select_all", key="I", mods=("Ctrl",), cat="Selection", modes={"EDIT_MESH"}),
-    dict(id="box_select", label="Box select", op="view3d.select_box", key="B", mods=(), cat="Selection", modes={"OBJECT", "EDIT_MESH"}),
+    # ---- 选择 ------------------------------------------------------------
+    dict(id="select_more", label="扩大选择", op="mesh.select_more", key="PADPLUSKEY", mods=("Ctrl",), cat="选择", modes={"EDIT_MESH"}),
+    dict(id="select_less", label="缩小选择", op="mesh.select_less", key="PADMINUS", mods=("Ctrl",), cat="选择", modes={"EDIT_MESH"}),
+    dict(id="select_invert", label="反选", op="mesh.select_all", key="I", mods=("Ctrl",), cat="选择", modes={"EDIT_MESH"}),
+    dict(id="box_select", label="框选", op="view3d.select_box", key="B", mods=(), cat="选择", modes={"OBJECT", "EDIT_MESH"}),
 
-    # ---- Sculpt ----------------------------------------------------------
-    dict(id="sculpt_mode", label="Sculpt mode", op="object.mode_set", key="TAB", mods=("Ctrl",), cat="Mode", modes={"OBJECT"}),
-    dict(id="brush_size", label="Brush size", op="wm.radial_control", key="F", mods=(), cat="Sculpt", modes={"SCULPT"}),
-    dict(id="brush_strength", label="Brush strength", op="wm.radial_control", key="F", mods=("Shift",), cat="Sculpt", modes={"SCULPT"}),
-    dict(id="smooth_brush", label="Smooth brush", op="sculpt.smooth", key="S", mods=("Shift",), cat="Sculpt", modes={"SCULPT"}),
-    dict(id="mask_brush", label="Mask brush", op="sculpt.mask_filter", key="M", mods=("Ctrl",), cat="Sculpt", modes={"SCULPT"}),
+    # ---- 雕刻 ------------------------------------------------------------
+    dict(id="sculpt_mode", label="雕刻模式", op="object.mode_set", key="TAB", mods=("Ctrl",), cat="模式", modes={"OBJECT"}),
+    dict(id="brush_size", label="笔刷大小", op="wm.radial_control", key="F", mods=(), cat="雕刻", modes={"SCULPT"}),
+    dict(id="brush_strength", label="笔刷强度", op="wm.radial_control", key="F", mods=("Shift",), cat="雕刻", modes={"SCULPT"}),
+    dict(id="smooth_brush", label="平滑笔刷", op="sculpt.smooth", key="S", mods=("Shift",), cat="雕刻", modes={"SCULPT"}),
+    dict(id="mask_brush", label="遮罩笔刷", op="sculpt.mask_filter", key="M", mods=("Ctrl",), cat="雕刻", modes={"SCULPT"}),
 
-    # ---- Pose / armature -------------------------------------------------
-    dict(id="pose_mode", label="Pose mode", op="object.mode_set", key="TAB", mods=("Ctrl",), cat="Mode", modes={"OBJECT"}),
-    dict(id="pose_clear", label="Clear pose", op="pose.rot_clear", key="R", mods=("Alt",), cat="Pose", modes={"POSE"}),
+    # ---- 姿态 ------------------------------------------------------------
+    dict(id="pose_mode", label="姿态模式", op="object.mode_set", key="TAB", mods=("Ctrl",), cat="模式", modes={"OBJECT"}),
+    dict(id="pose_clear", label="清除姿态", op="pose.rot_clear", key="R", mods=("Alt",), cat="姿态", modes={"POSE"}),
 
-    # ---- File / general --------------------------------------------------
-    dict(id="save", label="Save file", op="wm.save_mainfile", key="S", mods=("Ctrl",), cat="General", modes=None),
-    dict(id="save_as", label="Save as", op="wm.save_as_mainfile", key="S", mods=("Ctrl", "Shift"), cat="General", modes=None),
-    dict(id="open", label="Open file", op="wm.open_mainfile", key="O", mods=("Ctrl",), cat="General", modes=None),
-    dict(id="new_file", label="New file", op="wm.read_homefile", key="N", mods=("Ctrl",), cat="General", modes=None),
-    dict(id="undo", label="Undo", op="ed.undo", key="Z", mods=("Ctrl",), cat="General", modes=None),
-    dict(id="redo", label="Redo", op="ed.redo", key="Z", mods=("Ctrl", "Shift"), cat="General", modes=None),
-    dict(id="search_menu", label="Search menu", op="wm.search_menu", key="F3", mods=(), cat="General", modes=None),
-    dict(id="quick_favorites", label="Quick favorites", op="wm.call_menu", key="Q", mods=(), cat="General", modes=None),
+    # ---- 文件/通用 -------------------------------------------------------
+    dict(id="save", label="保存", op="wm.save_mainfile", key="S", mods=("Ctrl",), cat="文件", modes=None),
+    dict(id="save_as", label="另存为", op="wm.save_as_mainfile", key="S", mods=("Ctrl", "Shift"), cat="文件", modes=None),
+    dict(id="open", label="打开", op="wm.open_mainfile", key="O", mods=("Ctrl",), cat="文件", modes=None),
+    dict(id="new_file", label="新建", op="wm.read_homefile", key="N", mods=("Ctrl",), cat="文件", modes=None),
+    dict(id="undo", label="撤销", op="ed.undo", key="Z", mods=("Ctrl",), cat="文件", modes=None),
+    dict(id="redo", label="重做", op="ed.redo", key="Z", mods=("Ctrl", "Shift"), cat="文件", modes=None),
+    dict(id="search_menu", label="搜索菜单", op="wm.search_menu", key="F3", mods=(), cat="文件", modes=None),
+    dict(id="quick_favorites", label="快速收藏", op="wm.call_menu", key="Q", mods=(), cat="文件", modes=None),
 ]
+
+
+# ---------------------------------------------------------------------------
+# 初始 HUD：基础/文件操作 ---------------------------------------------------
+# ---------------------------------------------------------------------------
+# 未按任何操作键时，HUD 只显示这几条简单/文件操作。
+BASE_HINTS = [
+    {"key": "G", "mods": [], "label": "移动"},
+    {"key": "R", "mods": [], "label": "旋转"},
+    {"key": "S", "mods": [], "label": "缩放"},
+    {"key": "A", "mods": [], "label": "全选"},
+    {"key": "X", "mods": [], "label": "删除"},
+    {"key": "Ctrl", "mods": ["Ctrl"], "key_extra": "S", "label": "保存"},
+    {"key": "Ctrl", "mods": ["Ctrl"], "key_extra": "O", "label": "打开"},
+    {"key": "Ctrl", "mods": ["Ctrl"], "key_extra": "Z", "label": "撤销"},
+]
+
+# 初始 HUD 标题（按当前模式区分）
+BASE_TITLES = {
+    "OBJECT": "物体模式 · 基础",
+    "EDIT_MESH": "编辑模式 · 基础",
+    "SCULPT": "雕刻模式 · 基础",
+    "POSE": "姿态模式 · 基础",
+    "VERTEX_PAINT": "顶点绘制 · 基础",
+    "WEIGHT_PAINT": "权重绘制 · 基础",
+    "TEXTURE_PAINT": "纹理绘制 · 基础",
+}
+
+# 操作触发键 -> 该操作进入后的后续引导键（中文）。
+# 触发键用 Blender 的 event.type 字符串（单键）或修饰组合。
+OPERATION_HINTS = {
+    "G": {
+        "title": "移动（G）",
+        "items": [
+            {"key": "X", "mods": [], "label": "锁定 X 轴"},
+            {"key": "Y", "mods": [], "label": "锁定 Y 轴"},
+            {"key": "Z", "mods": [], "label": "锁定 Z 轴"},
+            {"key": "Shift+X", "mods": ["Shift"], "key_extra": "X", "label": "锁定 YZ 平面"},
+            {"key": "Shift+Y", "mods": ["Shift"], "key_extra": "Y", "label": "锁定 XZ 平面"},
+            {"key": "Shift+Z", "mods": ["Shift"], "key_extra": "Z", "label": "锁定 XY 平面"},
+            {"key": "0-9", "mods": [], "label": "按比例吸附"},
+            {"key": "Ctrl", "mods": ["Ctrl"], "label": "微调（按住）"},
+            {"key": "Alt", "mods": ["Alt"], "label": "吸附顶点/边（按住）"},
+            {"key": "LMB", "mods": [], "label": "确认"},
+            {"key": "RMB", "mods": [], "label": "取消"},
+            {"key": "ESC", "mods": [], "label": "取消"},
+        ],
+    },
+    "R": {
+        "title": "旋转（R）",
+        "items": [
+            {"key": "X/Y/Z", "mods": [], "label": "锁定轴向"},
+            {"key": "R", "mods": [], "label": "切换轨道/局部旋转"},
+            {"key": "0-9", "mods": [], "label": "输入角度（度）"},
+            {"key": "LMB", "mods": [], "label": "确认"},
+            {"key": "RMB / ESC", "mods": [], "label": "取消"},
+        ],
+    },
+    "S": {
+        "title": "缩放（S）",
+        "items": [
+            {"key": "X/Y/Z", "mods": [], "label": "锁定轴向"},
+            {"key": "0-9", "mods": [], "label": "输入比例"},
+            {"key": "LMB", "mods": [], "label": "确认"},
+            {"key": "RMB / ESC", "mods": [], "label": "取消"},
+        ],
+    },
+    "E": {
+        "title": "挤出（E）",
+        "modes": {"EDIT_MESH"},
+        "items": [
+            {"key": "X/Y/Z", "mods": [], "label": "锁定轴向"},
+            {"key": "E", "mods": [], "label": "挤出单个体"},
+            {"key": "Alt+E", "mods": ["Alt"], "key_extra": "E", "label": "挤出选项菜单"},
+            {"key": "LMB", "mods": [], "label": "确认"},
+            {"key": "RMB / ESC", "mods": [], "label": "取消"},
+        ],
+    },
+    "CTRL_R": {
+        "title": "环切（Ctrl+R）",
+        "modes": {"EDIT_MESH"},
+        "items": [
+            {"key": "滚轮", "mods": [], "label": "增加/减少段数"},
+            {"key": "0-9", "mods": [], "label": "输入段数"},
+            {"key": "F", "mods": [], "label": "翻转切口"},
+            {"key": "LMB", "mods": [], "label": "确认"},
+            {"key": "RMB / ESC", "mods": [], "label": "取消"},
+        ],
+    },
+    "CTRL_B": {
+        "title": "倒角（Ctrl+B）",
+        "modes": {"EDIT_MESH"},
+        "items": [
+            {"key": "滚轮", "mods": [], "label": "增加段数"},
+            {"key": "P", "mods": [], "label": "切换轮廓"},
+            {"key": "LMB", "mods": [], "label": "确认"},
+            {"key": "RMB / ESC", "mods": [], "label": "取消"},
+        ],
+    },
+    "K": {
+        "title": "切割（K）",
+        "modes": {"EDIT_MESH"},
+        "items": [
+            {"key": "LMB", "mods": [], "label": "添加切割点"},
+            {"key": "回车", "mods": [], "label": "确认"},
+            {"key": "E", "mods": [], "label": "新建切"},
+            {"key": "C", "mods": [], "label": "角度约束"},
+            {"key": "ESC / RMB", "mods": [], "label": "取消"},
+        ],
+    },
+    "I": {
+        "title": "内插面（I）",
+        "modes": {"EDIT_MESH"},
+        "items": [
+            {"key": "I", "mods": [], "label": "各自内插"},
+            {"key": "B", "mods": [], "label": "边界模式"},
+            {"key": "LMB", "mods": [], "label": "确认"},
+            {"key": "RMB / ESC", "mods": [], "label": "取消"},
+        ],
+    },
+}
+
+
+# 触发键名 -> OPERATION_HINTS 的键。
+# 用于把 modal 捕获到的 event 序列映射到 OPERATION_HINTS。
+TRIGGER_KEYS = {
+    "G": "G",
+    "R": "R",
+    "S": "S",
+    "E": "E",
+    "K": "K",
+    "I": "I",
+}
 
 
 def _op_list(entry):
@@ -144,7 +260,6 @@ def _op_list(entry):
 
 
 def relevant_shortcuts(mode):
-    """Shortcuts whose modes includes *mode* (None == everywhere)."""
     out = []
     for e in SHORTCUTS:
         m = e.get("modes")
@@ -153,16 +268,25 @@ def relevant_shortcuts(mode):
     return out
 
 
+def base_title_for_mode(mode):
+    return BASE_TITLES.get(mode, "基础操作")
+
+
+def operation_hint_for(trigger, mode):
+    """Return OPERATION_HINTS[trigger] if it applies in *mode*, else None."""
+    h = OPERATION_HINTS.get(trigger)
+    if h is None:
+        return None
+    modes = h.get("modes")
+    if modes is not None and mode not in modes:
+        return None
+    return h
+
+
 # ---------------------------------------------------------------------------
-# Keymap resolution ---------------------------------------------------------
+# 键位解析 ------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 def resolve_bindings(context, mode):
-    """Return dict id -> {"key": str, "mods": [..], "custom": bool}.
-
-    Scans the active/user keyconfig's relevant keymaps for the operator(s)
-    named in each entry.  If the user has re-bound the operator, the resulting
-    key/mods differ from the entry defaults and are flagged ``custom=True``.
-    """
     from . import hints
 
     entries = relevant_shortcuts(mode)
@@ -181,7 +305,6 @@ def resolve_bindings(context, mode):
 
     names = [n for n in hints.relevant_keymap_names(context) if n in by_name]
 
-    # op idname -> (key_type, [mod names]) ; later (mode-specific) wins.
     bindings = {}
     for name in names:
         km = by_name.get(name)

@@ -35,6 +35,12 @@ from . import constants
 from . import draw as hud_draw
 from .prefs import get_prefs
 
+
+def _blender_at_least(major, minor, patch=0):
+    v = bpy.app.version
+    return (v[0], v[1], v[2]) >= (major, minor, patch)
+
+
 # How often to rescan keyconfig + redraw the HUD.
 _RESCAN_INTERVAL = 1.0
 _REDRAW_SECS = 0.1
@@ -50,6 +56,17 @@ _scan_key = None
 # Draw handle + redraw timer.
 _draw_handle = None
 _redraw_timer = None
+
+# Currently active operation hint (e.g. "G") set by the key watcher, or None.
+_active_op = None
+_active_op_since = 0.0
+# How long an operation hint stays before reverting to base (seconds).
+_OP_HINT_TTL = 30.0
+
+# Drag state (mouse dragging the HUD title bar).
+_dragging = False
+_drag_dx = 0.0
+_drag_dy = 0.0
 
 
 def is_running():
@@ -78,8 +95,41 @@ def _scan_if_needed(force=False):
     _scan_at = now
 
 
+def _current_mode_key():
+    ctx = bpy.context
+    area = getattr(ctx, "area", None)
+    space_type = getattr(area, "type", None) if area else None
+    return space_type, hints._context_mode(ctx)
+
+
+def _build_payload():
+    """Build the HUD payload: title + lines (combo, label)."""
+    _, mode_key = _current_mode_key()
+    title = constants.base_title_for_mode(mode_key)
+    lines = []
+
+    op = _active_op
+    if op is not None and (time.time() - _active_op_since) < _OP_HINT_TTL:
+        h = constants.operation_hint_for(op, mode_key)
+        if h is not None:
+            title = h["title"]
+            for it in h["items"]:
+                combo = it.get("key", "?")
+                lines.append((combo, it.get("label", "")))
+    else:
+        # Base: simple + file operations.
+        for e in constants.BASE_HINTS:
+            key = e.get("key_extra") or e.get("key")
+            mods = e.get("mods") or []
+            combo = (" + ".join(mods + [key])) if mods else key
+            lines.append((combo, e.get("label", "")))
+
+    return {"title": title, "lines": lines,
+            "locked": bool(get_prefs().hud_locked if get_prefs() else False)}
+
+
 def current_reference():
-    """Return (mode, bindings, entries) for the current context."""
+    """Return (mode, bindings, entries) for the sidebar panel."""
     ctx = bpy.context
     mode = hints._context_mode(ctx)
     entries = constants.relevant_shortcuts(mode)
@@ -99,10 +149,10 @@ def _draw_callback_px():
     prefs = get_prefs()
     if prefs is None:
         return
-    mode, bindings, entries = current_reference()
     if not prefs.show_hud:
         return
-    hud_draw.draw_hud(region, prefs, mode, bindings, entries)
+    payload = _build_payload()
+    hud_draw.draw_hud(region, prefs, payload)
 
 
 def _redraw_loop():
@@ -110,6 +160,7 @@ def _redraw_loop():
         return None
     try:
         _scan_if_needed()
+        _ensure_watch_modal()
         for win in bpy.context.window_manager.windows:
             for area in win.screen.areas:
                 if area.type == "VIEW_3D":
@@ -139,6 +190,7 @@ def start(verbose=True):
         print("[Key Hint] redraw timer failed:", exc)
         _redraw_timer = None
     _running = True
+    _ensure_watch_modal()
     # Refresh once.
     try:
         for win in bpy.context.window_manager.windows:
@@ -153,9 +205,10 @@ def start(verbose=True):
 
 
 def stop(verbose=True):
-    global _running, _draw_handle, _redraw_timer
+    global _running, _draw_handle, _redraw_timer, _active_op
     if not _running:
         return True
+    _active_op = None
     if _draw_handle is not None:
         try:
             bpy.types.SpaceView3D.draw_handler_remove(_draw_handle, "WINDOW")
@@ -182,6 +235,143 @@ def snapshot():
         "bindings": bindings,
         "prefs": get_prefs(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Key watcher + drag modal (PASS_THROUGH) -----------------------------------
+# ---------------------------------------------------------------------------
+class KeyHintWatchOperator(bpy.types.Operator):
+    """Passive watcher: reads key presses (to switch the operation hint) and
+    mouse drags on the HUD title bar (to move the window). Never consumes the
+    event - it always returns PASS_THROUGH, so Blender keeps working normally.
+    """
+
+    bl_idname = "key_hint.watch"
+    bl_label = "Key Hint Watcher"
+    bl_options = {"REGISTER", "MODAL_PRIORITY"} \
+        if _blender_at_least(4, 2, 0) else {"REGISTER"}
+
+    _timer = None
+    _added = False
+
+    @classmethod
+    def poll(cls, context):
+        return _running
+
+    def invoke(self, context, event):
+        cls = self.__class__
+        if not _running:
+            return {"CANCELLED"}
+        if cls._timer is None:
+            try:
+                cls._timer = context.window_manager.event_timer_add(
+                    0.1, window=context.window)
+            except Exception:               # noqa: BLE001
+                cls._timer = None
+        context.window_manager.modal_handler_add(self)
+        cls._added = True
+        return {"RUNNING_MODAL"}
+
+    def _stop(self, context):
+        cls = self.__class__
+        if cls._timer is not None:
+            try:
+                context.window_manager.event_timer_remove(cls._timer)
+            except Exception:               # noqa: BLE001
+                pass
+            cls._timer = None
+        cls._added = False
+
+    def modal(self, context, event):
+        global _active_op, _active_op_since, _dragging, _drag_dx, _drag_dy
+
+        if not _running:
+            self._stop(context)
+            return {"FINISHED"}
+
+        evt_type = getattr(event, "type", None)
+        value = getattr(event, "value", None)
+        ctrl = getattr(event, "ctrl", False)
+
+        # --- key: switch operation hint ---------------------------------
+        if value == "PRESS" and evt_type in constants.TRIGGER_KEYS:
+            # Ctrl+R / Ctrl+B are special combined triggers.
+            if ctrl and evt_type in ("R", "B"):
+                _active_op = "CTRL_" + evt_type
+                _active_op_since = time.time()
+            elif evt_type in ("G", "R", "S", "E", "K", "I"):
+                _active_op = evt_type
+                _active_op_since = time.time()
+        elif value == "PRESS" and evt_type in ("ESC", "RIGHTMOUSE",
+                                               "LEFTMOUSE", "RET",
+                                               "NUMPAD_ENTER"):
+            # Confirm/cancel returns to base hints.
+            _active_op = None
+
+        # Expire stale op hint.
+        if _active_op is not None and \
+                (time.time() - _active_op_since) > _OP_HINT_TTL:
+            _active_op = None
+
+        # --- mouse: drag HUD title bar ----------------------------------
+        prefs = get_prefs()
+        self._handle_drag(context, event, prefs)
+
+        return {"PASS_THROUGH"}
+
+    def _handle_drag(self, context, event, prefs):
+        global _dragging, _drag_dx, _drag_dy
+        if prefs is None:
+            return
+        x = getattr(event, "mouse_region_x", None)
+        y = getattr(event, "mouse_region_y", None)
+        if x is None or y is None:
+            return
+
+        evt_type = getattr(event, "type", None)
+        value = getattr(event, "value", None)
+
+        if evt_type == "LEFTMOUSE":
+            if value == "PRESS" and not prefs.hud_locked:
+                tx, ty, tw, th = hud_draw.hud_title_rect
+                if tw > 0 and th > 0 and tx <= x <= tx + tw and \
+                        ty <= y <= ty + th:
+                    _dragging = True
+                    _drag_dx = x - prefs.offset_x
+                    _drag_dy = y - (context.region.height - prefs.offset_y)
+            elif value == "RELEASE":
+                _dragging = False
+        elif evt_type == "MOUSEMOVE" and _dragging and not prefs.hud_locked:
+            prefs.offset_x = max(0, int(x - _drag_dx))
+            # offset_y is measured from the top of the region.
+            top_y = context.region.height - y
+            prefs.offset_y = max(0, int(top_y + _drag_dy))
+
+    def cancel(self, context):
+        self._stop(context)
+
+
+def _ensure_watch_modal():
+    if not _running:
+        return
+    cls = KeyHintWatchOperator
+    if cls._added:
+        return
+    for wm in bpy.data.window_managers:
+        for win in wm.windows:
+            screen = getattr(win, "screen", None)
+            if screen is None:
+                continue
+            area = next((a for a in screen.areas if a.type == "VIEW_3D"), None)
+            if area is None:
+                continue
+            try:
+                with bpy.context.temp_override(window=win, screen=screen,
+                                               area=area):
+                    bpy.ops.key_hint.watch("INVOKE_DEFAULT")
+            except Exception:               # noqa: BLE001
+                pass
+            return
 
 
 # ---------------------------------------------------------------------------

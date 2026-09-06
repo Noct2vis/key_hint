@@ -66,6 +66,12 @@ class KeyHintAddonPreferences(bpy.types.AddonPreferences):
         default=True,
     )
 
+    hud_locked: BoolProperty(
+        name="Lock HUD",
+        description="Lock the HUD window position (cannot be dragged until unlocked)",
+        default=False,
+    )
+
     show_hints: BoolProperty(
         name="Append modifier group while held",
         description=(
@@ -152,10 +158,14 @@ class KeyHintAddonPreferences(bpy.types.AddonPreferences):
         col.prop(self, "max_hints")
         col.separator()
 
-        col.label(text="Style")
-        col.prop(self, "font_size")
+        col.label(text="HUD")
+        col.prop(self, "hud_locked")
         col.prop(self, "offset_x")
         col.prop(self, "offset_y")
+        col.separator()
+
+        col.label(text="Style")
+        col.prop(self, "font_size")
         col.prop(self, "background_opacity")
         col.prop(self, "use_separate_accent")
         if self.use_separate_accent:
