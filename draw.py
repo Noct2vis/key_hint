@@ -112,6 +112,14 @@ def _tw(fid, text, size):
         return 0.0
 
 
+def _th(fid, text, size):
+    _set_size(fid, size)
+    try:
+        return blf.dimensions(fid, text)[1]
+    except Exception:                       # noqa: BLE001
+        return 0.0
+
+
 def _draw_text(fid, x, y, text, color, size):
     try:
         _set_size(fid, size)
@@ -188,12 +196,17 @@ def draw_hud(region, prefs, payload):
         panel_w = max(panel_w, _tw(fid, combo + "  " + label, font))
     panel_w += pad * 2 + lock_w
 
+    # Title bar height: fit the actual title/lock text height + padding, so
+    # the title never overlaps the content below it.
+    small_h = max(_th(fid, title_text, small), _th(fid, lock_text, small))
+    title_h = small_h + 12.0
+
     usable = region.height - my - 24
     line_px = line_h + 2.0
-    max_lines = max(1, int(usable / line_px))
-    body = body[: max(0, max_lines - 1)]
+    # Reserve the title bar in the usable height for the body.
+    body_rows = max(0, int((usable - title_h) / line_px))
+    body = body[: body_rows]
 
-    title_h = line_px + 2.0
     total_h = title_h + len(body) * line_px + pad
 
     # Panel is anchored bottom-right.
@@ -209,24 +222,24 @@ def draw_hud(region, prefs, payload):
                (0.0, 0.0, 0.0, prefs.background_opacity))
 
     # Title bar (top strip) + export its rect for drag hit-testing.
-    _draw_rect(region, x0, y_top - title_h, panel_w, title_h,
+    title_y = y_top - title_h
+    _draw_rect(region, x0, title_y, panel_w, title_h,
                (0.12, 0.16, 0.24, 0.85))
-    hud_title_rect = (x0, y_top - title_h, panel_w, title_h)
+    hud_title_rect = (x0, title_y, panel_w, title_h)
 
-    # Title text (left).
-    _draw_text(fid, x0 + pad, y_top - title_h + 2, title_text, accent, small)
+    # Title text (left), vertically centered in the title bar.
+    title_ty = title_y + (title_h - small_h) / 2.0
+    _draw_text(fid, x0 + pad, title_ty, title_text, accent, small)
 
-    # Lock/unlock button (right end of the title bar), drawn in a distinct
-    # colour so it reads as clickable and does not overlap the title.
+    # Lock/unlock button (right end of the title bar).
     lock_x = x0 + panel_w - pad - lock_w
-    hud_lock_rect = (lock_x, y_top - title_h, lock_w + pad, title_h)
-    _draw_rect(region, lock_x - 4, y_top - title_h, lock_w + 8, title_h,
+    hud_lock_rect = (lock_x - 4, title_y, lock_w + 8, title_h)
+    _draw_rect(region, lock_x - 4, title_y, lock_w + 8, title_h,
                (0.9, 0.7, 0.1, 0.9) if locked else (0.3, 0.5, 0.3, 0.9))
-    _draw_text(fid, lock_x, y_top - title_h + 2, lock_text,
-               (0.0, 0.0, 0.0, 1.0), small)
+    _draw_text(fid, lock_x, title_ty, lock_text, (0.0, 0.0, 0.0, 1.0), small)
 
-    # Body lines (top to bottom).
-    y = y_top - title_h - 2
+    # Body lines (below the title bar, with a clear gap).
+    y = title_y - 4.0
     for combo, label in body:
         _draw_text(fid, x0 + pad, y, combo, text_color, font)
         _draw_text(fid, x0 + pad + panel_w * 0.42, y, label, text_color, font)
