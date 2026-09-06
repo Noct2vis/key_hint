@@ -95,6 +95,15 @@ def _font_id():
     return _cjk_font_id if _cjk_font_id is not None else _FONT_ID
 
 
+def reset_font():
+    """Re-load the CJK font.  Blender can invalidate the font id when a new
+    file/project is opened, which makes every blf text call silently draw
+    nothing (only the GPU rectangles remain).  Call this on load_post."""
+    global _cjk_font_id, _cjk_loaded
+    _cjk_loaded = False
+    _cjk_font_id = None
+
+
 def _set_size(fid, size):
     if bpy.app.version >= (4, 0, 0):
         blf.size(fid, size)

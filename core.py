@@ -544,7 +544,17 @@ def unregister_auto_start():
 
 @bpy.app.handlers.persistent
 def _load_post_handler(_dummy):
+    # A new/opened file clears Blender's modal operators but our class flags
+    # still say the watcher is running. Reset them and re-arm, and force a
+    # rescan because the mode/keymap context is now the new file's.
+    KeyHintWatchOperator._added = False
+    KeyHintWatchOperator._timer = None
+    # Opening a project can invalidate the loaded CJK font id (text disappears,
+    # only the GPU rects remain); reload it.
+    hud_draw.reset_font()
+    _scan_if_needed(force=True)
     register_auto_start()
+    _ensure_watch_modal()
 
 
 def handle_auto_start_change(self, context):

@@ -54,7 +54,7 @@ def _reload_submodules():
 bl_info = {
     "name": "Key Hint",
     "author": "Noct2vis",
-    "version": (1, 0, 0),
+    "version": (1, 0, 1),
     "blender": (3, 0, 0),
     "location": "3D Viewport > Sidebar > Key Hint",
     "description": (
