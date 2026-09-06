@@ -48,6 +48,8 @@ _shader_tried = False
 hud_title_rect = (0.0, 0.0, 0.0, 0.0)
 # Whole panel rect (x, y_bottom, w, h) for computing the anchor offset.
 hud_panel_rect = (0.0, 0.0, 0.0, 0.0)
+# Lock/unlock button rect (right end of the title bar).
+hud_lock_rect = (0.0, 0.0, 0.0, 0.0)
 
 
 def _shader_2d():
@@ -153,7 +155,7 @@ def draw_hud(region, prefs, payload):
     ``hud_title_rect`` in region-local pixel coords (x, y, w, h) with y being
     the bottom of the title bar.
     """
-    global hud_title_rect, hud_panel_rect
+    global hud_title_rect, hud_panel_rect, hud_lock_rect
     if prefs is None or region is None:
         return
 
@@ -173,21 +175,24 @@ def draw_hud(region, prefs, payload):
     locked = payload.get("locked", False)
     lines = payload.get("lines", [])
 
-    title_text = ("🔒 " if locked else "🔓 ") + title
+    # Title text and lock indicator are separate (no overlap).
+    title_text = title
+    lock_text = "锁定" if locked else "解锁"
+
     body = lines
 
     # Measure width: title + body lines.
     panel_w = _tw(fid, title_text, small)
+    lock_w = _tw(fid, lock_text, small) + 10.0
     for combo, label in body:
         panel_w = max(panel_w, _tw(fid, combo + "  " + label, font))
-    panel_w += pad * 2
+    panel_w += pad * 2 + lock_w
 
     usable = region.height - my - 24
     line_px = line_h + 2.0
     max_lines = max(1, int(usable / line_px))
     body = body[: max(0, max_lines - 1)]
 
-    total_lines = 1 + len(body)
     title_h = line_px + 2.0
     total_h = title_h + len(body) * line_px + pad
 
@@ -208,8 +213,17 @@ def draw_hud(region, prefs, payload):
                (0.12, 0.16, 0.24, 0.85))
     hud_title_rect = (x0, y_top - title_h, panel_w, title_h)
 
-    # Title text.
+    # Title text (left).
     _draw_text(fid, x0 + pad, y_top - title_h + 2, title_text, accent, small)
+
+    # Lock/unlock button (right end of the title bar), drawn in a distinct
+    # colour so it reads as clickable and does not overlap the title.
+    lock_x = x0 + panel_w - pad - lock_w
+    hud_lock_rect = (lock_x, y_top - title_h, lock_w + pad, title_h)
+    _draw_rect(region, lock_x - 4, y_top - title_h, lock_w + 8, title_h,
+               (0.9, 0.7, 0.1, 0.9) if locked else (0.3, 0.5, 0.3, 0.9))
+    _draw_text(fid, lock_x, y_top - title_h + 2, lock_text,
+               (0.0, 0.0, 0.0, 1.0), small)
 
     # Body lines (top to bottom).
     y = y_top - title_h - 2

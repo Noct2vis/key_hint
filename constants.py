@@ -122,17 +122,82 @@ SHORTCUTS = [
 # ---------------------------------------------------------------------------
 # 初始 HUD：基础/文件操作 ---------------------------------------------------
 # ---------------------------------------------------------------------------
-# 未按任何操作键时，HUD 只显示这几条简单/文件操作。
+# 未按任何操作键时，HUD 显示这几条简单/文件操作。
 BASE_HINTS = [
     {"key": "G", "mods": [], "label": "移动"},
     {"key": "R", "mods": [], "label": "旋转"},
     {"key": "S", "mods": [], "label": "缩放"},
     {"key": "A", "mods": [], "label": "全选"},
     {"key": "X", "mods": [], "label": "删除"},
-    {"key": "Ctrl", "mods": ["Ctrl"], "key_extra": "S", "label": "保存"},
-    {"key": "Ctrl", "mods": ["Ctrl"], "key_extra": "O", "label": "打开"},
-    {"key": "Ctrl", "mods": ["Ctrl"], "key_extra": "Z", "label": "撤销"},
+    {"key": "D", "mods": ["Shift"], "label": "复制"},
+    {"key": "S", "mods": ["Ctrl"], "label": "保存"},
+    {"key": "O", "mods": ["Ctrl"], "label": "打开"},
+    {"key": "Z", "mods": ["Ctrl"], "label": "撤销"},
+    {"key": "Z", "mods": ["Ctrl", "Shift"], "label": "重做"},
 ]
+
+_MOD_NAME = {"ctrl": "Ctrl", "shift": "Shift", "alt": "Alt", "oskey": "OS"}
+
+
+def base_hint_lines(mode):
+    """Base HUD lines (combo, label) for *mode* — mode-aware, richer than the
+    tiny hard-coded BASE_HINTS, reading the real user keyconfig."""
+    ctx = bpy.context
+    bindings = resolve_bindings(ctx, mode)
+    lines = []
+    for e in SHORTCUTS:
+        m = e.get("modes")
+        if m is not None and mode not in m:
+            continue
+        if e.get("mouse"):
+            continue
+        b = bindings.get(e["id"], {})
+        key = b.get("key", e.get("key", "?"))
+        mods = b.get("mods", e.get("mods", []))
+        if not mods:
+            lines.append((key, e.get("label", "")))
+    if lines:
+        return lines
+    # Fallback to hard-coded list.
+    out = []
+    for e in BASE_HINTS:
+        key = e.get("key_extra") or e.get("key")
+        mods = e.get("mods") or []
+        combo = (" + ".join(mods + [key])) if mods else key
+        out.append((combo, e.get("label", "")))
+    return out
+
+
+def modifier_hint_lines(mode, mods):
+    """Lines (combo, label) whose required modifiers include every held one.
+
+    ``mods`` is a set of modifier attribute names, e.g. {"ctrl"}.  Holding
+    Ctrl also reveals Ctrl+Shift+... entries.
+    """
+    ctx = bpy.context
+    bindings = resolve_bindings(ctx, mode)
+    held = set(mods or ())
+    lines = []
+    for e in SHORTCUTS:
+        m = e.get("modes")
+        if m is not None and mode not in m:
+            continue
+        if e.get("mouse"):
+            continue
+        b = bindings.get(e["id"], {})
+        key = b.get("key", e.get("key", "?"))
+        emods = b.get("mods", e.get("mods", []))
+        if not emods:
+            continue
+        req = set()
+        for attr, disp in MOD_ORDER:
+            if disp in emods:
+                req.add(attr)
+        if held and held.issubset(req):
+            combo = " + ".join(emods + [key])
+            lines.append((combo, e.get("label", "")))
+    return lines
+
 
 # 初始 HUD 标题（按当前模式区分）
 BASE_TITLES = {

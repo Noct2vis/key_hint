@@ -63,6 +63,9 @@ _active_op_since = 0.0
 # How long an operation hint stays before reverting to base (seconds).
 _OP_HINT_TTL = 30.0
 
+# Held modifier set (attribute names: ctrl/shift/alt/oskey).
+_held_mods = set()
+
 # Drag state (mouse dragging the HUD title bar).
 _dragging = False
 _drag_dx = 0.0
@@ -116,13 +119,15 @@ def _build_payload():
             for it in h["items"]:
                 combo = it.get("key", "?")
                 lines.append((combo, it.get("label", "")))
+    elif _held_mods:
+        # A modifier is held -> show shortcuts that start with it.
+        names = [constants._MOD_NAME[m] for m in
+                 ("ctrl", "shift", "alt", "oskey") if m in _held_mods]
+        title = " + ".join(names) + " +"
+        lines = constants.modifier_hint_lines(mode_key, _held_mods)
     else:
-        # Base: simple + file operations.
-        for e in constants.BASE_HINTS:
-            key = e.get("key_extra") or e.get("key")
-            mods = e.get("mods") or []
-            combo = (" + ".join(mods + [key])) if mods else key
-            lines.append((combo, e.get("label", "")))
+        # Base: mode-aware no-modifier shortcuts.
+        lines = constants.base_hint_lines(mode_key)
 
     return {"title": title, "lines": lines,
             "locked": bool(get_prefs().hud_locked if get_prefs() else False)}
@@ -284,6 +289,7 @@ class KeyHintWatchOperator(bpy.types.Operator):
 
     def modal(self, context, event):
         global _active_op, _active_op_since, _dragging, _drag_dx, _drag_dy
+        global _held_mods
 
         if not _running:
             self._stop(context)
@@ -292,6 +298,34 @@ class KeyHintWatchOperator(bpy.types.Operator):
         evt_type = getattr(event, "type", None)
         value = getattr(event, "value", None)
         ctrl = getattr(event, "ctrl", False)
+        shift = getattr(event, "shift", False)
+        alt = getattr(event, "alt", False)
+        oskey = getattr(event, "oskey", False)
+
+        # --- held modifiers (from event flags + explicit key events) -----
+        if evt_type in ("LEFT_CTRL", "RIGHT_CTRL", "LEFT_SHIFT", "RIGHT_SHIFT",
+                        "LEFT_ALT", "RIGHT_ALT", "OSKEY"):
+            mod = {"LEFT_CTRL": "ctrl", "RIGHT_CTRL": "ctrl",
+                   "LEFT_SHIFT": "shift", "RIGHT_SHIFT": "shift",
+                   "LEFT_ALT": "alt", "RIGHT_ALT": "alt",
+                   "OSKEY": "oskey"}.get(evt_type)
+            if mod:
+                if value == "PRESS":
+                    _held_mods.add(mod)
+                elif value == "RELEASE":
+                    _held_mods.discard(mod)
+        else:
+            # Rebuild from event flags (authoritative for non-modifier events).
+            flags = set()
+            if ctrl:
+                flags.add("ctrl")
+            if shift:
+                flags.add("shift")
+            if alt:
+                flags.add("alt")
+            if oskey:
+                flags.add("oskey")
+            _held_mods = flags
 
         # --- key: switch operation hint ---------------------------------
         if value == "PRESS" and evt_type in constants.TRIGGER_KEYS:
@@ -313,13 +347,13 @@ class KeyHintWatchOperator(bpy.types.Operator):
                 (time.time() - _active_op_since) > _OP_HINT_TTL:
             _active_op = None
 
-        # --- mouse: drag HUD title bar ----------------------------------
+        # --- mouse: drag title bar / click lock icon ---------------------
         prefs = get_prefs()
-        self._handle_drag(context, event, prefs)
+        self._handle_mouse(context, event, prefs)
 
         return {"PASS_THROUGH"}
 
-    def _handle_drag(self, context, event, prefs):
+    def _handle_mouse(self, context, event, prefs):
         global _dragging, _drag_dx, _drag_dy
         if prefs is None:
             return
@@ -337,32 +371,33 @@ class KeyHintWatchOperator(bpy.types.Operator):
         # region-local y with origin at BOTTOM (same as draw).
         y_bottom_up = region.height - y
 
-        if evt_type == "LEFTMOUSE":
-            if value == "PRESS" and not prefs.hud_locked:
+        if evt_type == "LEFTMOUSE" and value == "PRESS":
+            # 1) Lock/unlock icon (right end of the title bar)?
+            lx, ly, lw, lh = hud_draw.hud_lock_rect
+            if lw > 0 and lh > 0 and lx <= x <= lx + lw and \
+                    ly <= y_bottom_up <= ly + lh:
+                prefs.hud_locked = not prefs.hud_locked
+                return
+            # 2) Drag title bar (only when unlocked).
+            if not prefs.hud_locked:
                 tx, ty, tw, th = hud_draw.hud_title_rect
                 if tw > 0 and th > 0 and tx <= x <= tx + tw and \
                         ty <= y_bottom_up <= ty + th:
                     _dragging = True
-                    # Grab offset: mouse position relative to the title bar's
-                    # bottom-left corner.
                     _drag_dx = x - tx
                     _drag_dy = y_bottom_up - ty
-            elif value == "RELEASE":
-                _dragging = False
+        elif evt_type == "LEFTMOUSE" and value == "RELEASE":
+            _dragging = False
         elif evt_type == "MOUSEMOVE" and _dragging and not prefs.hud_locked:
             tx, ty, tw, th = hud_draw.hud_title_rect
             px, py, pw, ph = hud_draw.hud_panel_rect
             if tw <= 0 or pw <= 0:
                 return
-            # New title-bar bottom-left from the mouse.
             new_tx = x - _drag_dx
             new_ty = y_bottom_up - _drag_dy
-            # New panel bottom-left = title-bottom-left shifted down by the
-            # fixed distance between title bar and panel bottom.
             title_to_bottom = ty - py
             new_py = new_ty - title_to_bottom
             new_px = new_tx - (tx - px)
-            # Anchors: offset_x from right, offset_y from bottom.
             prefs.offset_x = max(0, int(region.width - (new_px + pw)))
             prefs.offset_y = max(0, int(new_py))
 
