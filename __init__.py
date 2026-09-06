@@ -26,28 +26,19 @@ Both read the user's *real* keyconfig (bpy.context.window_manager.keyconfigs),
 so re-bound shortcuts are shown with the user's key and flagged.
 """
 
-# Reload-detection idiom (must run BEFORE importing bpy below).
-if "bpy" in locals():
-    import importlib
-    for _mod_name in ("prefs", "hints", "constants", "core", "draw",
-                      "panels"):
-        if _mod_name in locals():
-            importlib.reload(locals()[_mod_name])
-else:
-    import bpy
-    from . import prefs
-    from . import hints
-    from . import constants
-    from . import core
-    from . import draw
-    from . import panels
+import bpy
 
-import bpy  # noqa: E402  (guarantee bpy is in scope for bl_info consumers)
+from . import prefs
+from . import hints
+from . import constants
+from . import core
+from . import draw
+from . import panels
 
 bl_info = {
     "name": "Key Hint",
     "author": "Noct2vis",
-    "version": (0, 2, 0),
+    "version": (0, 2, 1),
     "blender": (3, 0, 0),
     "location": "3D Viewport > Sidebar > Key Hint",
     "description": (
