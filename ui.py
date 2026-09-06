@@ -43,16 +43,11 @@ class KEYHINT_PT_panel(bpy.types.Panel):
         prefs = prefs.preferences
 
         col = layout.column(align=True)
-        col.label(text="Reference")
-        col.prop(prefs, "show_fundamentals")
-        col.prop(prefs, "show_hints")
-        col.prop(prefs, "max_hints")
-        col.prop(prefs, "show_pressed_keys")
-
-        col.separator()
-        col.label(text="Style")
-        col.prop(prefs, "font_size")
-        col.prop(prefs, "background_opacity")
+        col.label(text="Status-bar reference")
+        col.prop(prefs, "show_fundamentals", text="Base shortcuts (G/R/S…)")
+        col.prop(prefs, "show_hints", text="Append modifier group when held")
+        col.prop(prefs, "max_hints", text="Max entries")
+        col.prop(prefs, "show_pressed_keys", text="Show pressed keys")
 
         # Link to the add-on preferences.
         layout.separator()

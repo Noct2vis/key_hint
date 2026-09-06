@@ -32,14 +32,13 @@ PASS_THROUGH modal handler, so every shortcut keeps working exactly as before.
 # initial-import branch (which is what actually imports the sub-modules).
 if "bpy" in locals():
     import importlib
-    for _mod_name in ("prefs", "hints", "draw", "core", "ui"):
+    for _mod_name in ("prefs", "hints", "core", "ui"):
         if _mod_name in locals():
             importlib.reload(locals()[_mod_name])
 else:
     import bpy
     from . import prefs
     from . import hints
-    from . import draw
     from . import core
     from . import ui
 
@@ -67,7 +66,7 @@ def register():
     bpy.utils.register_class(prefs.KeyHintAddonPreferences)
     bpy.utils.register_class(core.KeyHintCaptureOperator)
     bpy.utils.register_class(core.KeyHintRestartOperator)
-    bpy.utils.register_class(core.KeyHintModifierProbe)
+    bpy.utils.register_class(core.KeyHintStatusOperator)
     bpy.utils.register_class(ui.KEYHINT_PT_panel)
     core.register_enable_property()
     core.register_app_handlers()
@@ -85,7 +84,7 @@ def unregister():
     except RuntimeError:
         pass
     try:
-        bpy.utils.unregister_class(core.KeyHintModifierProbe)
+        bpy.utils.unregister_class(core.KeyHintStatusOperator)
     except RuntimeError:
         pass
     try:

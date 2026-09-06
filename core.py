@@ -15,24 +15,20 @@
 # ##### END GPL LICENSE BLOCK #####
 
 """
-Capture + lifecycle for Key Hint.
+Lifecycle for Key Hint.
 
-Rendering lifecycle (reliable across Blender versions) follows the pattern of
-the Blender Foundation's ``space_view3d_math_vis`` add-on and Shortcut VUr:
+Display target: Blender's *window status bar* (the bottom strip that is
+normally always visible).  Key Hint drives it through the native
+``WindowManager.status_text_set()`` API, which Blender itself renders - no
+custom GPU drawing, so there is no "drawn off screen" or overlay problem.
 
-  * we register ONE ``SpaceView3D`` ``POST_PIXEL`` draw handler for the
-    ``WINDOW`` region;
-  * a module-level ``bpy.app.timers`` loop calls ``area.tag_redraw()`` on the
-    3D areas roughly every 0.1 s - this is what actually drives the draw
-    handler to re-run, and it does NOT depend on a modal operator receiving
-    events (a key reason the earlier build showed nothing);
-  * an optional PASS_THROUGH modal operator reads which modifier key is held
-    (to append the matching shortcut group).  Even if that modal never fires,
-    the always-on base table still renders.
+While the add-on runs we keep a PASS_THROUGH modal operator alive and, on a
+short timer, push the current mode's shortcut reference to the status text.
+The status text disappears automatically once the modal ends.
 
-GPL note: Shortcut VUr is GPL-3.0; math_vis is GPL-2.0-or-later.  The
-implementation below is written for Key Hint; where an architecture idea is
-shared it is referenced above.
+GPL note: PASS_THROUGH-modal observation is the architecture idea shared with
+Screencast Keys (GPL-2.0-or-later) and Shortcut VUr (GPL-3.0); the code below
+is written for Key Hint.
 """
 
 import time
@@ -40,22 +36,17 @@ import time
 import bpy
 
 from . import hints
-from . import draw as hud_draw
 from .prefs import get_prefs
 
 _STALE_MODIFIER_SECS = 0.6
-# How often the always-on overlay redraws (drives the draw handler).
-_REDRAW_SECS = 0.1
-# Minimum interval between full keymap rescans.
+# How often the status text refreshes / rescans the keymap.
+_LOOP_SECS = 0.15
 _RESCAN_INTERVAL = 1.0
 
-_redraw_timer = None
-_draw_handle = None
-
-# Per-addon running flag + shared state.
+# Running flag shared by the panel / operator.
 _running = False
 
-# Current held modifier attribute-names (from the passive modal, if it runs).
+# Current held modifier attribute-names (set by the modal on key events).
 _held = set()
 _held_since = 0.0
 
@@ -65,8 +56,10 @@ _scan_key = None
 _scan_at = 0.0
 _mode_title = ""
 
-# Diagnostics.
-_modal_count = 0
+_last_push = ""
+
+# Module-level keepalive timer that re-arms the status modal and re-scans.
+_keepalive = None
 
 
 def is_running():
@@ -76,16 +69,6 @@ def is_running():
 # ---------------------------------------------------------------------------
 # Keymap scan ---------------------------------------------------------------
 # ---------------------------------------------------------------------------
-def _current_ctx(area=None):
-    """Return a small namespace we can pass to hints.* helpers.
-
-    hints.* only reads context.area, context.mode / active_object / object,
-    context.window_manager.keyconfigs.  bpy.context usually provides all of
-    these correctly inside a draw/timer callback.
-    """
-    return bpy.context
-
-
 def _scan_if_needed(now, force=False):
     global _entries, _scan_key, _scan_at, _mode_title
     ctx = bpy.context
@@ -105,155 +88,271 @@ def _scan_if_needed(now, force=False):
 
 
 # ---------------------------------------------------------------------------
-# Draw handler --------------------------------------------------------------
+# Text assembly -------------------------------------------------------------
 # ---------------------------------------------------------------------------
-def _draw_callback_px():
-    """POST_PIXEL draw handler. bpy.context points at the region being drawn."""
-    area = getattr(bpy.context, "area", None)
-    region = getattr(bpy.context, "region", None)
-    if area is None or area.type != "VIEW_3D":
-        return
-    if region is None:
-        return
+def hints_key_name(mod):
+    return {"ctrl": "Ctrl", "shift": "Shift", "alt": "Alt", "oskey": "OS"} \
+        .get(mod, mod or "")
+
+
+def _combo_text(mods, key):
+    if mods:
+        return " + ".join(mods + [key])
+    return key
+
+
+def build_status_text(prefs):
+    """Build the one-line status-bar reference for the current context."""
     if not _running:
-        return
+        return ""
+    base, _ = hints.split_base_and_modifier(_entries)
 
-    data = snapshot()
-    # TEMP DEBUG banner so we can confirm drawing runs and where.
-    hud_draw.draw_debug_banner(region)
-    hud_draw.draw_hud(area, region, data)
+    parts = []
+    title = ("[%s] " % _mode_title) if _mode_title else ""
+
+    # Always-on fundamentals (no modifier).
+    show_base = prefs is None or prefs.show_fundamentals
+    if show_base and base:
+        shown = base[: (prefs.max_hints if prefs else 20)]
+        joined = "   ".join(
+            "%s %s" % (_combo_text(e["mods"], e["key"]), e["label"])
+            for e in shown)
+        parts.append(joined)
+
+    # Held modifier group (appended).
+    if (prefs is None or prefs.show_hints) and _held:
+        extra = hints.entries_for_modifiers(_entries, _held)
+        if extra:
+            held_names = " + ".join(hints_key_name(m) for m in sorted(_held))
+            extra_shown = extra[: (prefs.max_hints if prefs else 20)]
+            extra_txt = "   ".join(
+                "%s %s" % (_combo_text(e["mods"], e["key"]), e["label"])
+                for e in extra_shown)
+            parts.append("[" + held_names + " +]  " + extra_txt)
+
+    body = ("   ||   ".join(p for p in parts if p)).strip()
+    return title + body
 
 
-def _redraw_loop():
-    """Module timer: keep redrawing 3D areas while running."""
-    global _redraw_timer
-    if not _running:
-        return None                        # stop
-    try:
-        _scan_if_needed(time.time())
-        # Ensure the passive modifier probe is alive (some operators cancel
-        # all window modals, which would silently end our probe).
-        cls = KeyHintModifierProbe
-        if not cls._modal_added:
-            for win in bpy.context.window_manager.windows:
-                for area in win.screen.areas:
-                    if area.type == "VIEW_3D":
-                        try:
-                            with bpy.context.temp_override(window=win,
-                                                           area=area):
-                                bpy.ops.key_hint.modifier_probe(
-                                    "INVOKE_DEFAULT")
-                        except Exception:    # noqa: BLE001
-                            pass
-                        break
-        wm = bpy.context.window_manager
-        for win in wm.windows:
-            for area in win.screen.areas:
-                if area.type == "VIEW_3D":
-                    area.tag_redraw()
-    except Exception:                       # noqa: BLE001
-        pass
-    return _REDRAW_SECS
+# ---------------------------------------------------------------------------
+# Status bar modal ----------------------------------------------------------
+# ---------------------------------------------------------------------------
+class KeyHintStatusOperator(bpy.types.Operator):
+    """Passive modal that keeps the shortcut reference in the status bar."""
+    bl_idname = "key_hint.status"
+    bl_label = "Key Hint"
+    bl_description = "Show Key Hint reference in the status bar"
+    bl_options = {"REGISTER"}
+
+    _timer = None
+
+    @classmethod
+    def poll(cls, context):
+        return True
+
+    # --- lifecycle ------------------------------------------------------
+    def invoke(self, context, event):
+        cls = self.__class__
+        if not _running:
+            return {"CANCELLED"}
+        if cls._timer is None:
+            try:
+                cls._timer = context.window_manager.event_timer_add(
+                    _LOOP_SECS, window=context.window)
+            except Exception:                # noqa: BLE001
+                cls._timer = None
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def _stop(self, context):
+        cls = self.__class__
+        if cls._timer is not None:
+            try:
+                context.window_manager.event_timer_remove(cls._timer)
+            except Exception:                # noqa: BLE001
+                pass
+            cls._timer = None
+        try:
+            context.window_manager.status_text_set(None)
+        except Exception:                    # noqa: BLE001
+            pass
+
+    def modal(self, context, event):
+        global _held, _held_since
+        if not _running:
+            self._stop(context)
+            return {"FINISHED"}
+
+        evt_type = getattr(event, "type", None)
+        value = getattr(event, "value", None)
+        now = time.time()
+
+        # Track held modifiers from event boolean flags + explicit key events.
+        flags = set()
+        for attr in ("ctrl", "shift", "alt", "oskey"):
+            if getattr(event, attr, False):
+                flags.add(attr)
+        mod = {"LEFT_SHIFT": "shift", "RIGHT_SHIFT": "shift",
+               "LEFT_CTRL": "ctrl", "RIGHT_CTRL": "ctrl",
+               "LEFT_ALT": "alt", "RIGHT_ALT": "alt",
+               "OSKEY": "oskey"}.get(evt_type)
+        if mod is not None:
+            if value == "PRESS":
+                flags.add(mod)
+            elif value == "RELEASE":
+                flags.discard(mod)
+        if flags or mod is not None:
+            _held = flags
+            _held_since = now
+        if _held and (now - _held_since) > _STALE_MODIFIER_SECS:
+            _held = set()
+
+        self._scan_if_needed_now(now)
+        self._push_status(context)
+        return {"PASS_THROUGH"}
+
+    def _scan_if_needed_now(self, now):
+        _scan_if_needed(now)
+
+    def _push_status(self, context):
+        global _last_push
+        prefs = get_prefs()
+        text = build_status_text(prefs)
+        if not text:
+            try:
+                context.window_manager.status_text_set(None)
+            except Exception:                # noqa: BLE001
+                pass
+            return
+        try:
+            context.window_manager.status_text_set(text)
+            _last_push = text
+        except Exception:                    # noqa: BLE001
+            pass
+
+    def cancel(self, context):
+        self._stop(context)
 
 
 # ---------------------------------------------------------------------------
 # Lifecycle -----------------------------------------------------------------
 # ---------------------------------------------------------------------------
-def start(verbose=True):
-    global _running, _draw_handle, _redraw_timer, _held
-    if _running:
-        return True
-
+def _keepalive_loop():
+    """Re-arm the status modal if it got cancelled, and keep it updated."""
+    global _keepalive
+    if not _running:
+        return None                        # stop
     try:
-        _draw_handle = bpy.types.SpaceView3D.draw_handler_add(
-            _draw_callback_px, (), "WINDOW", "POST_PIXEL")
-    except Exception as exc:                 # noqa: BLE001
-        print("[Key Hint] draw handler add failed:", exc)
-        _draw_handle = None
-        return False
+        _scan_if_needed(time.time())
+        _ensure_status_modal()
+        # Re-push current text if no modal is active to own the status bar.
+        if not KeyHintStatusOperator._timer:
+            _push_status_now()
+    except Exception:                       # noqa: BLE001
+        pass
+    return _LOOP_SECS
 
-    _held = set()
-    _scan_if_needed(time.time(), force=True)
 
-    # Drive redraws with a module timer (guaranteed, no modal dependency).
+def _push_status_now():
+    """Push status text using the current window context (fallback)."""
+    global _last_push
     try:
-        _redraw_timer = bpy.app.timers.register(_redraw_loop)
-    except Exception as exc:                 # noqa: BLE001
-        print("[Key Hint] redraw timer failed:", exc)
-        _redraw_timer = None
-
-    _running = True
-
-    # Refresh all 3D areas once.
-    try:
-        for win in bpy.context.window_manager.windows:
-            for area in win.screen.areas:
-                if area.type == "VIEW_3D":
-                    area.tag_redraw()
-    except Exception:                        # noqa: BLE001
+        wm = bpy.context.window_manager
+        if wm is None:
+            return
+        text = build_status_text(get_prefs())
+        if text:
+            wm.status_text_set(text)
+            _last_push = text
+        else:
+            wm.status_text_set(None)
+    except Exception:                       # noqa: BLE001
         pass
 
+
+def start(verbose=True):
+    global _running, _keepalive
+    if _running:
+        return True
+    _scan_if_needed(time.time(), force=True)
+    _running = True
     if verbose:
-        print("[Key Hint] started")
+        print("[Key Hint] started (status bar mode)")
+    _ensure_status_modal()
+    if _keepalive is None:
+        try:
+            _keepalive = bpy.app.timers.register(_keepalive_loop)
+        except Exception:                    # noqa: BLE001
+            _keepalive = None
     return True
 
 
+def _ensure_status_modal():
+    """Invoke the status modal against the first usable 3D viewport window."""
+    if not _running:
+        return
+    for wm in bpy.data.window_managers:
+        for win in wm.windows:
+            screen = getattr(win, "screen", None)
+            if screen is None:
+                continue
+            area = next((a for a in screen.areas if a.type == "VIEW_3D"), None)
+            if area is None:
+                continue
+            try:
+                with bpy.context.temp_override(window=win, screen=screen,
+                                               area=area):
+                    bpy.ops.key_hint.status("INVOKE_DEFAULT")
+            except Exception:                # noqa: BLE001
+                pass
+            return
+
+
 def stop(verbose=True):
-    global _running, _draw_handle, _redraw_timer, _held, _entries
+    global _running, _held, _entries, _keepalive
     if not _running:
         return True
-    if _draw_handle is not None:
-        try:
-            bpy.types.SpaceView3D.draw_handler_remove(_draw_handle, "WINDOW")
-        except Exception:                    # noqa: BLE001
-            pass
-        _draw_handle = None
-    if _redraw_timer is not None:
-        try:
-            bpy.app.timers.unregister(_redraw_timer)
-        except Exception:                    # noqa: BLE001
-            pass
-        _redraw_timer = None
     _running = False
     _held = set()
     _entries = []
+    if _keepalive is not None:
+        try:
+            bpy.app.timers.unregister(_keepalive)
+        except Exception:                    # noqa: BLE001
+            pass
+        _keepalive = None
+    # Kill the status modal.
+    try:
+        bpy.ops.key_hint.status("INVOKE_DEFAULT")
+    except Exception:                        # noqa: BLE001
+        pass
     if verbose:
         print("[Key Hint] stopped")
+    return True
 
 
 def snapshot():
-    """Plain dict describing the current HUD content (for the draw handler)."""
+    """Plain dict describing current state (used by panel/tests)."""
     prefs = get_prefs()
-    base, _ = hints.split_base_and_modifier(_entries)
-    extra = []
-    if _held and (prefs is None or prefs.show_hints):
-        extra = hints.entries_for_modifiers(_entries, _held)
     return {
         "running": _running,
         "mode": _mode_title,
-        "base": base if (prefs is None or prefs.show_fundamentals) else [],
+        "entries": len(_entries),
         "held": [hints_key_name(m) for m in sorted(_held)],
         "held_attrs": sorted(_held),
-        "extra": extra,
-        "pressed": [],
-        "modal_count": _modal_count,
+        "last": _last_push,
         "prefs": prefs,
     }
-
-
-def hints_key_name(mod):
-    return {"ctrl": "Ctrl", "shift": "Shift", "alt": "Alt", "oskey": "OS"} \
-        .get(mod, mod or "")
 
 
 # ---------------------------------------------------------------------------
 # Operators -----------------------------------------------------------------
 # ---------------------------------------------------------------------------
 class KeyHintCaptureOperator(bpy.types.Operator):
-    """Toggle the Key Hint always-on overlay on/off."""
+    """Toggle the Key Hint status-bar reference on/off."""
     bl_idname = "key_hint.capture"
     bl_label = "Key Hint"
-    bl_description = "Toggle the Key Hint reference HUD overlay"
+    bl_description = "Toggle the Key Hint status-bar reference"
     bl_options = {"REGISTER"}
 
     def execute(self, context):
@@ -268,17 +367,16 @@ class KeyHintCaptureOperator(bpy.types.Operator):
 
 
 class KeyHintRestartOperator(bpy.types.Operator):
-    """Force a full restart and report state (visible in the sidebar)."""
+    """Force a full restart and report state."""
     bl_idname = "key_hint.restart"
     bl_label = "Key Hint Restart / Show Status"
-    bl_description = "Restart the Key Hint HUD and report its state"
+    bl_description = "Restart the Key Hint reference and report its state"
 
     def execute(self, context):
         stop(verbose=False)
         ok = start(verbose=True)
-        msg = ("[Key Hint] running=%s handler=%s timer=%s entries=%d mode=%r"
-               % (ok, bool(_draw_handle), bool(_redraw_timer),
-                  len(_entries), _mode_title))
+        msg = ("[Key Hint] running=%s entries=%d mode=%r"
+               % (ok, len(_entries), _mode_title))
         print(msg)
         try:
             context.window_manager.status_text_set(
@@ -288,115 +386,6 @@ class KeyHintRestartOperator(bpy.types.Operator):
             pass
         self.report({"INFO"}, msg)
         return {"FINISHED"}
-
-
-# ---------------------------------------------------------------------------
-# Passive modal (optional): reads which modifier is currently held ----------
-# ---------------------------------------------------------------------------
-class KeyHintModifierProbe(bpy.types.Operator):
-    """PASS_THROUGH modal that only watches modifier keys.
-
-    Not required for the always-on base table to render; it merely appends
-    the matching modifier group while a modifier is held.
-    """
-    bl_idname = "key_hint.modifier_probe"
-    bl_label = "Key Hint Modifier Probe"
-    bl_options = {"REGISTER"}
-
-    _timer_handle = None
-    _modal_added = False
-
-    @classmethod
-    def poll(cls, context):
-        return _running
-
-    def _start_probe(self, context):
-        cls = self.__class__
-        if cls._modal_added:
-            return
-        if cls._timer_handle is None:
-            try:
-                cls._timer_handle = context.window_manager.event_timer_add(
-                    0.1, window=context.window)
-            except Exception:                # noqa: BLE001
-                cls._timer_handle = None
-        context.window_manager.modal_handler_add(self)
-        cls._modal_added = True
-        print("[Key Hint] modifier probe modal added")
-
-    def _stop_probe(self, context):
-        cls = self.__class__
-        if cls._timer_handle is not None:
-            try:
-                context.window_manager.event_timer_remove(cls._timer_handle)
-            except Exception:                # noqa: BLE001
-                pass
-            cls._timer_handle = None
-        cls._modal_added = False
-
-    def invoke(self, context, event):
-        global _modal_count
-        _modal_count += 1
-        if _running:
-            self._start_probe(context)
-        else:
-            self._stop_probe(context)
-        return {"RUNNING_MODAL"}
-
-    def modal(self, context, event):
-        global _held, _held_since
-        if not _running:
-            self._stop_probe(context)
-            return {"FINISHED"}
-
-        _modal_count += 1
-        evt_type = getattr(event, "type", None)
-        value = getattr(event, "value", None)
-        flags = set()
-        for attr in ("ctrl", "shift", "alt", "oskey"):
-            if getattr(event, attr, False):
-                flags.add(attr)
-
-        mod = {"LEFT_SHIFT": "shift", "RIGHT_SHIFT": "shift",
-               "LEFT_CTRL": "ctrl", "RIGHT_CTRL": "ctrl",
-               "LEFT_ALT": "alt", "RIGHT_ALT": "alt",
-               "OSKEY": "oskey"}.get(evt_type)
-        if mod is not None:
-            if value == "PRESS":
-                flags.add(mod)
-            elif value == "RELEASE":
-                flags.discard(mod)
-        if flags or mod is not None:
-            _held = flags
-            _held_since = time.time()
-        if _held and (time.time() - _held_since) > _STALE_MODIFIER_SECS:
-            _held = set()
-        return {"PASS_THROUGH"}
-
-    def cancel(self, context):
-        self._stop_probe(context)
-
-
-def _probe_loop():
-    """Keep the modifier probe alive by re-invoking if the add-on runs but the
-    modal ended (some operations cancel all window modals)."""
-    if not _running:
-        return None
-    cls = KeyHintModifierProbe
-    if not cls._modal_added:
-        for win in bpy.data.window_managers:
-            for w in win.windows:
-                for area in w.screen.areas:
-                    if area.type == "VIEW_3D":
-                        try:
-                            with bpy.context.temp_override(window=w,
-                                                           area=area):
-                                bpy.ops.key_hint.modifier_probe(
-                                    "INVOKE_DEFAULT")
-                        except Exception:    # noqa: BLE001
-                            pass
-                        break
-    return 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -417,7 +406,7 @@ def register_enable_property():
 
     bpy.types.WindowManager.key_hint_enabled = bpy.props.BoolProperty(
         name="Key Hint",
-        description="Start / stop the Key Hint reference HUD overlay",
+        description="Start / stop the Key Hint status-bar reference",
         get=get_enabled,
         set=set_enabled,
     )
@@ -432,21 +421,10 @@ def unregister_enable_property():
 # Auto start ----------------------------------------------------------------
 # ---------------------------------------------------------------------------
 def start_capture(verbose=True):
-    if start(verbose):
-        # Also start the optional modifier probe.
-        _probe_loop()
-        return True
-    return False
+    return start(verbose)
 
 
 def stop_capture(verbose=True):
-    # Ensure the probe modal is gone.
-    cls = KeyHintModifierProbe
-    if cls._modal_added:
-        try:
-            bpy.ops.key_hint.modifier_probe("INVOKE_DEFAULT")
-        except Exception:                    # noqa: BLE001
-            pass
     return stop(verbose)
 
 
