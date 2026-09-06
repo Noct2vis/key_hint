@@ -19,7 +19,7 @@ Lifecycle for Key Hint.
 
 Display target: Blender's *window status bar* (the bottom strip that is
 normally always visible).  Key Hint drives it through the native
-``WindowManager.status_text_set()`` API, which Blender itself renders - no
+``WorkSpace.status_text_set()`` API, which Blender itself renders - no
 custom GPU drawing, so there is no "drawn off screen" or overlay problem.
 
 While the add-on runs we keep a PASS_THROUGH modal operator alive and, on a
@@ -93,6 +93,22 @@ def _scan_if_needed(now, force=False):
 def hints_key_name(mod):
     return {"ctrl": "Ctrl", "shift": "Shift", "alt": "Alt", "oskey": "OS"} \
         .get(mod, mod or "")
+
+
+def _set_status_text(context, text):
+    """Set the window status-bar text (None clears it).
+
+    Blender >= 4.x exposes this on ``WorkSpace.status_text_set`` (the
+    ``WindowManager`` API was removed).  ``context.workspace`` is the active
+    workspace for the window being drawn/operated on.
+    """
+    ws = getattr(context, "workspace", None)
+    if ws is None or not hasattr(ws, "status_text_set"):
+        return
+    try:
+        ws.status_text_set(text)
+    except Exception:                    # noqa: BLE001
+        pass
 
 
 def _combo_text(mods, key):
@@ -173,7 +189,7 @@ class KeyHintStatusOperator(bpy.types.Operator):
                 pass
             cls._timer = None
         try:
-            context.window_manager.status_text_set(None)
+            _set_status_text(context, None)
         except Exception:                    # noqa: BLE001
             pass
 
@@ -219,16 +235,10 @@ class KeyHintStatusOperator(bpy.types.Operator):
         prefs = get_prefs()
         text = build_status_text(prefs)
         if not text:
-            try:
-                context.window_manager.status_text_set(None)
-            except Exception:                # noqa: BLE001
-                pass
+            _set_status_text(context, None)
             return
-        try:
-            context.window_manager.status_text_set(text)
-            _last_push = text
-        except Exception:                    # noqa: BLE001
-            pass
+        _set_status_text(context, text)
+        _last_push = text
 
     def cancel(self, context):
         self._stop(context)
@@ -257,15 +267,12 @@ def _push_status_now():
     """Push status text using the current window context (fallback)."""
     global _last_push
     try:
-        wm = bpy.context.window_manager
-        if wm is None:
+        ctx = bpy.context
+        if ctx is None:
             return
         text = build_status_text(get_prefs())
-        if text:
-            wm.status_text_set(text)
-            _last_push = text
-        else:
-            wm.status_text_set(None)
+        _set_status_text(ctx, text)
+        _last_push = text
     except Exception:                       # noqa: BLE001
         pass
 
@@ -378,12 +385,10 @@ class KeyHintRestartOperator(bpy.types.Operator):
         msg = ("[Key Hint] running=%s entries=%d mode=%r"
                % (ok, len(_entries), _mode_title))
         print(msg)
-        try:
-            context.window_manager.status_text_set(
-                "[Key Hint] " + ("RUNNING entries=%d" % len(_entries)
-                                 if ok else "NOT RUNNING"))
-        except Exception:                    # noqa: BLE001
-            pass
+        _set_status_text(context,
+                         "[Key Hint] " +
+                         ("RUNNING entries=%d" % len(_entries) if ok
+                          else "NOT RUNNING"))
         self.report({"INFO"}, msg)
         return {"FINISHED"}
 
