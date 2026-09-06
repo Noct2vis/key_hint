@@ -9,7 +9,6 @@ maintainer = "Noct2vis <rv24726@bristol.ac.uk>"
 type = "add-on"
 
 blender_version_min = "4.2.0"
-blender_version_max = "5.2.0"
 
 license = ["SPDX:GPL-3.0-or-later"]
 
