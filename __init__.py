@@ -15,15 +15,15 @@
 # ##### END GPL LICENSE BLOCK #####
 
 """
-Key Hint - Flowkeys-style shortcut reference for Blender.
+Key Hint - 基于“两表”的快捷键参考。
 
-Two surfaces share one shortcut engine (constants.py + keymap resolution):
-  * a sidebar N-panel (panels.py) with categories, instant search, a custom-
-    binding marker (✱) and per-shortcut notes stored in the .blend;
-  * an optional always-on HUD in the 3D viewport (draw.py).
-
-Both read the user's *real* keyconfig (bpy.context.window_manager.keyconfigs),
-so re-bound shortcuts are shown with the user's key and flagged.
+插件读取你真实键位(config)，但只在三个刷新点重建，而不是每帧扫描：
+  * 数据库表 B：活动 keyconfig 的全量绑定(键盘+鼠标+特殊键+modal 子键)，
+    功能名用界面语言算子名(builder.py 在 启动/增删键位/keymap变化 时重建)。
+  * 显示表 A：你实际保留显示的子集(library.py，默认全显，可增删，持久化)。
+核心查询(engine.py)：按 当前模式标签 × 选中状态 × 按住修饰键 × 是否已按操作键
+决定显示哪些行。侧栏(panels.py)编辑 A + 按功能名/按键搜索 + 分组；3D 视口 HUD
+(draw.py + core.py watch modal)实时反映。没有“是否显示 Key Hint”开关。
 """
 
 import bpy
@@ -31,6 +31,11 @@ import bpy
 from . import prefs
 from . import hints
 from . import constants
+from . import engine
+from . import library
+from . import content
+from . import builder
+from . import runtime
 from . import core
 from . import draw
 from . import panels
@@ -38,14 +43,18 @@ from . import panels
 
 def _reload_submodules():
     """Force-reload all submodules so a stale cached module (from an earlier
-    addon version) never surfaces.  This fixes the classic Blender issue where
-    installing a new version over an old one leaves the old module object in
-    ``sys.modules`` and `register()` then hits 'has no attribute X'."""
+    addon version) never surfaces."""
     import importlib
-    global prefs, hints, constants, core, draw, panels
+    global prefs, hints, constants, engine, library, content, builder, runtime
+    global core, draw, panels
     prefs = importlib.reload(prefs)
     hints = importlib.reload(hints)
     constants = importlib.reload(constants)
+    engine = importlib.reload(engine)
+    library = importlib.reload(library)
+    content = importlib.reload(content)
+    builder = importlib.reload(builder)
+    runtime = importlib.reload(runtime)
     core = importlib.reload(core)
     draw = importlib.reload(draw)
     panels = importlib.reload(panels)
@@ -54,12 +63,13 @@ def _reload_submodules():
 bl_info = {
     "name": "Key Hint",
     "author": "Noct2vis",
-    "version": (1, 0, 5),
+    "version": (2, 0, 1),
     "blender": (3, 0, 0),
     "location": "3D Viewport > Sidebar > Key Hint",
     "description": (
-        "Flowkeys-style shortcut reference: categorized list in the sidebar "
-        "and 3D-viewport HUD, synced to your keymap (custom bindings marked ✱)"
+        "Two-table shortcut reference synced to your real keymap: shows the "
+        "shortcuts you keep (sidebar) and a live 3D-viewport HUD that reacts "
+        "to mode / selection / held modifiers / pressed operation keys."
     ),
     "warning": "",
     "doc_url": "https://github.com/Noct2vis/key_hint",
@@ -79,8 +89,7 @@ def _register_class(cls):
 def register():
     _reload_submodules()
     _register_class(prefs.KeyHintAddonPreferences)
-    panels.register_notes()
-    _register_class(panels.KEYHINT_PT_panel)
+    panels.register_panel_props()
     _register_class(core.KeyHintCaptureOperator)
     _register_class(core.KeyHintRestartOperator)
     _register_class(core.KeyHintWatchOperator)
@@ -106,11 +115,7 @@ def unregister():
         bpy.utils.unregister_class(core.KeyHintCaptureOperator)
     except RuntimeError:
         pass
-    try:
-        bpy.utils.unregister_class(panels.KEYHINT_PT_panel)
-    except RuntimeError:
-        pass
-    panels.unregister_notes()
+    panels.unregister_panel_props()
     try:
         bpy.utils.unregister_class(prefs.KeyHintAddonPreferences)
     except RuntimeError:

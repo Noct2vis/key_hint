@@ -214,7 +214,11 @@ def key_display_name(event_or_item_type):
 
 
 def operator_label(idname, fallback=""):
-    """Human readable label for an operator idname ('' -> fallback)."""
+    """Human readable label for an operator idname ('' -> fallback).
+
+    Uses the operator's own display label so the text follows Blender's
+    language the same way the operator name is shown in Blender itself.
+    """
     if not idname:
         return fallback
     try:
@@ -226,6 +230,89 @@ def operator_label(idname, fallback=""):
         if label:
             return label
     return fallback or idname
+
+
+def localized_operator_label(idname, fallback=""):
+    """Operator label localised to the running UI language where possible.
+
+    ``bl_label`` is English; if the UI has translations loaded (e.g. Chinese
+    language pack) this asks Blender for the translated label so the shown
+    name follows the interface language.
+    """
+    base = operator_label(idname, fallback)
+    try:
+        trans = bpy.app.translations
+        ctx = getattr(trans, "context", None)
+        pgettext = getattr(trans, "pgettext_iface", None) or \
+            getattr(trans, "pgettext", None)
+        if pgettext is not None:
+            # Operator labels live in the "Operator" context.
+            local = pgettext(base, "Operator")
+            if local and local != base:
+                return local
+    except Exception:                    # noqa: BLE001
+        pass
+    return base
+
+
+def _props_match(item, wanted):
+    """True if *item*'s operator properties match every (name, value) in
+    *wanted*.  Lets us disambiguate operators that share an idname but differ
+    by a property (e.g. view3d.view_axis by its 'axis')."""
+    if not wanted:
+        return True
+    props = getattr(item, "properties", None)
+    if props is None:
+        return False
+    try:
+        for name, value in wanted.items():
+            if not hasattr(props, name):
+                return False
+            if getattr(props, name) != value:
+                return False
+    except Exception:                        # noqa: BLE001
+        return False
+    return True
+
+
+def find_binding(entry):
+    """Return the current (mods_display, key_display) binding for a retained
+    *entry* ({'op': idname, 'keymap': name or '', 'props': {...}}), or None.
+
+    Scans the active keyconfig for an active, usable item whose idname (and
+    property subset) match.  A matching keymap name (if given) wins; otherwise
+    the first matching item found is returned.  Needs a real GUI keyconfig to
+    see any bindings (keymap items are empty headless).
+    """
+    kc = _pick_keyconfig(bpy.context)
+    if kc is None:
+        return None
+    op = (entry or {}).get("op", "") or ""
+    if not op:
+        return None
+    wanted = (entry or {}).get("props") or {}
+    target_km = (entry or {}).get("keymap", "") or ""
+    best = None
+    try:
+        for km in kc.keymaps:
+            if getattr(km, "is_modal", False):
+                continue
+            for it in km.keymap_items:
+                if not _item_usable(it):
+                    continue
+                if getattr(it, "idname", "") != op:
+                    continue
+                if not _props_match(it, wanted):
+                    continue
+                mods = _modifier_names_from_attrs(_modifier_set(it))
+                combo = (mods, key_display_name(getattr(it, "type", None)))
+                if target_km and km.name == target_km:
+                    return combo
+                if best is None:
+                    best = combo
+    except Exception:                        # noqa: BLE001
+        return None
+    return best
 
 
 # ---------------------------------------------------------------------------
@@ -303,11 +390,13 @@ def collect_entries(context):
             key_disp = key_display_name(key_type)
             mods_tuple = tuple(sorted(attrs))
             dedupe = (mods_tuple, key_disp)
+            idname = getattr(it, "idname", "") or ""
             entry = {
                 "mods": _modifier_names_from_attrs(attrs),
                 "key": key_disp,
-                "label": operator_label(getattr(it, "idname", ""),
-                                        fallback=getattr(it, "name", "")),
+                "label": localized_operator_label(
+                    idname, fallback=getattr(it, "name", "")),
+                "op": idname,
             }
             # Relevant keymaps are ordered from generic -> context/mode
             # specific, so a later entry with the same key is the more useful

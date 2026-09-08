@@ -165,14 +165,16 @@ def draw_hud(region, prefs, payload):
 
     payload = {
         "title": str,
-        "lines": [(combo, label), ...],
+        "sections": [ {"name": str, "rows": [(combo, label), ...]}, ... ],
         "locked": bool,
     }
+    For backward compatibility, a flat "lines": [(combo, label)] payload is
+    still accepted and drawn as one unnamed section.
 
-    offset_x/offset_y are measured from the *right* and *bottom* edges of the
-    region respectively.  The title bar rect (for dragging) is exported to
-    ``hud_title_rect`` in region-local pixel coords (x, y, w, h) with y being
-    the bottom of the title bar.
+    Each row shows 功能名 (left) on the left and the 按键 combo on the right,
+    matching the sidebar layout.  offset_x/offset_y are measured from the
+    *right* and *bottom* edges of the region respectively.  The title bar rect
+    (for dragging) is exported to ``hud_title_rect`` in window pixel coords.
     """
     global hud_title_rect, hud_panel_rect, hud_lock_rect, hud_region_info
     if prefs is None or region is None:
@@ -184,42 +186,62 @@ def draw_hud(region, prefs, payload):
     text_color = tuple(prefs.text_color)
     accent = tuple(prefs.accent_color) if prefs.use_separate_accent \
         else text_color
+    header_color = accent if prefs.use_separate_accent else text_color
 
     mx = float(prefs.offset_x)      # distance from right edge
     my = float(prefs.offset_y)      # distance from bottom edge
     pad = 8.0
     line_h = 14.0 if font < 14 else (font + 4)
+    line_px = line_h + 2.0
+    header_px = small + 6.0
 
     title = payload.get("title", "Key Hint")
     locked = payload.get("locked", False)
-    lines = payload.get("lines", [])
+    sections = payload.get("sections")
 
-    # Title text and lock indicator are separate (no overlap).
-    title_text = title
+    # Build a flat list of draw items: ("h", name) headers / ("r", c, l) rows.
+    items = []
+    if sections:
+        for sec in sections:
+            name = sec.get("name", "")
+            items.append(("h", name))
+            for combo, label in sec.get("rows", []):
+                items.append(("r", combo, label))
+    else:
+        for combo, label in payload.get("lines", []):
+            items.append(("r", combo, label))
+    if not items:
+        items.append(("h", "（此模式无条目 · 请到侧栏添加）"))
+
+    # Measure widths.
     lock_text = "锁定" if locked else "解锁"
-
-    body = lines
-
-    # Measure width: title + body lines.
-    panel_w = _tw(fid, title_text, small)
+    title_text = title
+    panel_w = _tw(fid, title, small)
     lock_w = _tw(fid, lock_text, small) + 10.0
-    for combo, label in body:
-        panel_w = max(panel_w, _tw(fid, combo + "  " + label, font))
+    for it in items:
+        if it[0] == "h":
+            panel_w = max(panel_w, _tw(fid, it[1], small))
+        else:
+            _k, combo, label = it
+            panel_w = max(panel_w, _tw(fid, combo, font) +
+                          _tw(fid, label, font) + 16.0)
     panel_w += pad * 2 + lock_w
 
-    # Title bar height: measured from the actual title/lock glyph height,
-    # plus generous vertical padding so the title text never clips or touches
-    # the content below.
-    small_h = max(_th(fid, title_text, small), _th(fid, lock_text, small))
+    # Height bookkeeping.
+    small_h = max(_th(fid, title, small), _th(fid, lock_text, small))
     title_h = small_h + 20.0
 
-    usable = region.height - my - 24
-    line_px = line_h + 2.0
-    # Reserve the title bar in the usable height for the body.
-    body_rows = max(0, int((usable - title_h) / line_px))
-    body = body[: body_rows]
+    def content_h(list_):
+        tot = 0.0
+        for it in list_:
+            tot += header_px if it[0] == "h" else line_px
+        return tot
 
-    total_h = title_h + len(body) * line_px + pad
+    usable = region.height - my - 24
+    body = items
+    while body and (title_h + content_h(body) + pad) > usable:
+        body = body[:-1]
+    total_h = title_h + content_h(body) + pad
 
     # Panel is anchored bottom-right.
     x_right = region.width - mx
@@ -254,9 +276,16 @@ def draw_hud(region, prefs, payload):
                (0.9, 0.7, 0.1, 0.9) if locked else (0.3, 0.5, 0.3, 0.9))
     _draw_text(fid, lock_x, title_ty, lock_text, (0.0, 0.0, 0.0, 1.0), small)
 
-    # Body lines (below the title bar, with a clear gap).
-    y = title_y - 8.0
-    for combo, label in body:
-        _draw_text(fid, x0 + pad, y, combo, text_color, font)
-        _draw_text(fid, x0 + pad + panel_w * 0.42, y, label, text_color, font)
+    # Body: headers + rows.  Rows put 功能名 left and 按键 right-aligned.
+    right_edge = x0 + panel_w - pad
+    y = title_y - 6.0
+    for it in body:
+        if it[0] == "h":
+            _draw_text(fid, x0 + pad, y, it[1], header_color, small)
+            y -= header_px
+            continue
+        _k, combo, label = it
+        _draw_text(fid, x0 + pad, y, label, text_color, font)
+        combo_w = _tw(fid, combo, font)
+        _draw_text(fid, right_edge - combo_w, y, combo, text_color, font)
         y -= line_px

@@ -15,15 +15,15 @@
 # ##### END GPL LICENSE BLOCK #####
 
 """
-Lifecycle: 3D viewport HUD reference + shared state.
+Lifecycle: 3D viewport HUD + shared state.
 
-Two surfaces use the same shortcut engine:
-  * the sidebar N-panel (panels.py) - native UI, always works;
-  * an optional 3D-viewport HUD (draw.py) driven by a module redraw timer.
-
-A module-level bpy.app.timers loop keeps re-scanning the keyconfig and
-calling area.tag_redraw() - this does NOT depend on a modal operator receiving
-events (a modal is not used here at all), so the HUD reliably refreshes.
+Two surfaces read the SAME two tables:
+  * database B (full real bindings, rebuilt at the three refresh points) and
+  * shown set A (the rows you actually keep showing),
+both exposed through runtime.py.  The HUD payload is the A∩B subset that
+matches the current context (mode tags × selection × held modifier × whether an
+operation key like G/R/S is running).  A module-level bpy.app.timers loop keeps
+rebuilding the payload and tagging areas for redraw, so the HUD tracks the user.
 """
 
 import time
@@ -31,7 +31,10 @@ import time
 import bpy
 
 from . import hints
+from . import engine
+from . import runtime
 from . import constants
+from . import store
 from . import draw as hud_draw
 from .prefs import get_prefs
 
@@ -109,46 +112,158 @@ def _current_mode_key():
     return space_type, hints._context_mode(ctx)
 
 
-def _build_payload():
-    """Build the HUD payload: title + lines (combo, label).
+def _current_mode():
+    """Best-effort current mode string (e.g. 'OBJECT', 'EDIT_MESH')."""
+    try:
+        return hints._context_mode(bpy.context)
+    except Exception:                        # noqa: BLE001
+        return "OBJECT"
 
-    Priority (highest first):
-      1. active operation hint (e.g. after Ctrl+R -> loop-cut follow-ups)
-      2. held modifier group (Ctrl/Shift/Alt)
-      3. base list
+
+def _mode_caption(mode):
+    """Short Chinese caption for the HUD title based on the current mode."""
+    mode = (mode or "").upper()
+    if mode.startswith("EDIT_"):
+        return "编辑模式"
+    caption = {
+        "OBJECT": "物体模式",
+        "SCULPT": "雕刻模式",
+        "POSE": "姿态模式",
+        "VERTEX_PAINT": "顶点绘制",
+        "WEIGHT_PAINT": "权重绘制",
+        "TEXTURE_PAINT": "纹理绘制",
+        "PARTICLE": "粒子模式",
+    }
+    return caption.get(mode, "快捷键")
+
+
+_MOD_ATTR_DISPLAY = {"ctrl": "Ctrl", "shift": "Shift", "alt": "Alt",
+                     "oskey": "OS"}
+
+# operation trigger (as tracked by the watch modal) -> its modal keymap name.
+_OP_MODAL_MAP = {
+    "G": "Transform Modal Map",
+    "R": "Transform Modal Map",
+    "S": "Transform Modal Map",
+    "E": "Transform Modal Map",
+    "CTRL_R": "Loop Cut Modal Map",
+    "CTRL_B": "Bevel Modal Map",
+    "K": "Knife Tool Modal Map",
+}
+
+_OP_TITLES = {
+    "G": "移动（G）", "R": "旋转（R）", "S": "缩放（S）",
+    "E": "挤出（E）", "I": "内插面（I）",
+    "CTRL_R": "环切（Ctrl+R）", "CTRL_B": "倒角（Ctrl+B）",
+    "K": "切刀（K）",
+}
+
+
+def _modal_map_lines(keymap_name):
+    """Read the current follow-up sub-keys of a modal keymap from the keyconfig
+    (so nothing is invented - only real modal bindings are shown).  Returns a
+    list of (combo, label) or [] if the keymap / items can't be found."""
+    if not keymap_name:
+        return []
+    try:
+        wm = bpy.context.window_manager
+        kc = getattr(wm.keyconfigs, "active", None) or wm.keyconfigs.get("Blender")
+        if kc is None:
+            return []
+        for km in kc.keymaps:
+            if getattr(km, "name", "") != keymap_name:
+                continue
+            rows = []
+            for it in km.keymap_items:
+                if not getattr(it, "active", True):
+                    continue
+                if getattr(it, "map_type", None) not in ("KEYBOARD",):
+                    continue
+                if getattr(it, "value", None) not in ("PRESS", "ANY"):
+                    continue
+                combo = hints.key_display_name(getattr(it, "type", None))
+                rows.append((combo, getattr(it, "name", "") or ""))
+            return rows
+    except Exception:                        # noqa: BLE001
+        return []
+    return []
+
+
+def _selection_present():
+    """当前是否有选中的物体/点线面(供 engine 的 selected 语义使用)."""
+    try:
+        mode = hints._context_mode(bpy.context)
+        if mode and mode != "OBJECT":
+            obj = bpy.context.active_object
+            if obj is not None:
+                data = getattr(obj, "data", None)
+                if data is not None and hasattr(data, "total_vert_sel"):
+                    return bool(getattr(data, "total_vert_sel", 0)
+                                or getattr(data, "total_edge_sel", 0)
+                                or getattr(data, "total_face_sel", 0))
+        return len(bpy.context.selected_objects) > 0
+    except Exception:                        # noqa: BLE001
+        return False
+
+
+def _active_tags():
+    ctx = bpy.context
+    area = getattr(ctx, "area", None)
+    st = getattr(area, "type", "VIEW_3D") if area else "VIEW_3D"
+    mode = hints._context_mode(ctx)
+    return engine.active_tags(mode, st)
+
+
+def _build_payload():
+    """Build the HUD payload from 显示表 A ∩ 数据库 B under the current context.
+
+    Everything is under key detection (watch modal):
+      1. an operation key is running (G/R/S/E/I/…) -> read that operation's
+         modal sub-keys (live from keyconfig, GUI-only);
+      2. a modifier is held (Shift/Ctrl/Alt) -> only shown A∩B entries for the
+         current mode that carry that modifier;
+      3. otherwise -> the shown A∩B entries for the current mode with no
+         modifier (base group).
+    Mode tags + real selection state gate which rows count.
     """
-    _, mode_key = _current_mode_key()
-    title = constants.base_title_for_mode(mode_key)
+    tags = _active_tags()
+    sel = _selection_present()
+    title = ""
     lines = []
 
     op = _active_op
     if op is not None and (time.time() - _active_op_since) < _OP_HINT_TTL:
-        h = constants.operation_hint_for(op, mode_key)
-        if h is not None:
-            title = h["title"]
-            for it in h["items"]:
-                combo = it.get("key", "?")
-                lines.append((combo, it.get("label", "")))
-        else:
-            lines = constants.base_hint_lines(mode_key)
-    elif _held_mods:
-        names = [constants._MOD_NAME[m] for m in
-                 ("ctrl", "shift", "alt", "oskey") if m in _held_mods]
+        ov = _modal_map_lines(_OP_MODAL_MAP.get(op, ""))
+        if ov:
+            title = _OP_TITLES.get(op, "操作")
+            lines = ov
+    if not lines and _held_mods:
+        recs = runtime.query_shown(tags, sel, held=set(_held_mods),
+                                   parent=None)
+        names = [name for attr, name in _MOD_ATTR_DISPLAY.items()
+                 if attr in _held_mods]
         title = " + ".join(names) + " +"
-        lines = constants.modifier_hint_lines(mode_key, _held_mods)
-    else:
-        lines = constants.base_hint_lines(mode_key)
+        lines = [(engine.combo_text(r.get("mods"), r.get("key")),
+                  r.get("name", "") or r.get("op", "")) for r in recs]
+    if not lines:
+        recs = runtime.query_shown(tags, sel, held=set(), parent=None)
+        title = "%s · 基础" % _mode_caption(hints._context_mode(bpy.context))
+        lines = [(engine.combo_text(r.get("mods"), r.get("key")),
+                  r.get("name", "") or r.get("op", "")) for r in recs]
 
     return {"title": title, "lines": lines,
             "locked": bool(get_prefs().hud_locked if get_prefs() else False)}
 
 
 def current_reference():
-    """Return (mode, bindings, entries) for the sidebar panel."""
+    """Return (mode, bindings, entry_count) for status reports."""
     ctx = bpy.context
     mode = hints._context_mode(ctx)
-    entries = constants.relevant_shortcuts(mode)
-    return _mode, _bindings, entries
+    try:
+        shown = runtime.shown_records()
+    except Exception:                        # noqa: BLE001
+        shown = []
+    return mode, {}, len(shown)
 
 
 # ---------------------------------------------------------------------------

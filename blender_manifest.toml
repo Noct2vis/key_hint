@@ -1,9 +1,9 @@
 schema_version = "1.0.0"
 
 id = "key_hint"
-version = "1.0.5"
+version = "2.0.1"
 name = "Key Hint"
-tagline = "Flowkeys-style shortcut reference synced to your keymap"
+tagline = "Your own shortcut list, mirrored by a 3D-viewport HUD"
 maintainer = "Noct2vis <rv24726@bristol.ac.uk>"
 
 type = "add-on"

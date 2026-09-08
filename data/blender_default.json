@@ -1,0 +1,233 @@
+{
+  "blender_default_keymap": {
+    "description": "Blender 默认快捷键映射表 (基于官方手册)",
+    "source": "https://docs.blender.org/manual/zh-hans/dev/interface/keymap/blender_default.html",
+    "keymap": [
+      {
+        "modifier_keys": "none",
+        "mode": "global",
+        "selection_state": "any",
+        "shortcuts": [
+          { "key": "F1", "function": "打开上下文帮助", "note": "" },
+          { "key": "F2", "function": "重命名活动项目", "note": "" },
+          { "key": "F3", "function": "菜单搜索", "note": "可搜索任何操作" },
+          { "key": "F4", "function": "打开文件上下文菜单", "note": "" },
+          { "key": "F5 - F8", "function": "保留给用户自定义操作", "note": "" },
+          { "key": "F9", "function": "调整上一步操作", "note": "修改刚执行操作的参数" },
+          { "key": "F10", "function": "保留给用户自定义操作", "note": "" },
+          { "key": "F11", "function": "打开渲染窗口", "note": "" },
+          { "key": "F12", "function": "渲染当前帧", "note": "" },
+          { "key": "Q", "function": "快速访问收藏夹", "note": "" },
+          { "key": "Esc", "function": "取消当前操作", "note": "退出大多数工具和菜单" },
+          { "key": "Spacebar", "function": "用户可配置", "note": "默认为播放动画、切换工具或搜索" },
+          { "key": "Tab", "function": "切换编辑模式", "note": "在物体模式和编辑模式间切换" }
+        ]
+      },
+      {
+        "modifier_keys": "ctrl",
+        "mode": "global",
+        "selection_state": "any",
+        "shortcuts": [
+          { "key": "Ctrl + O", "function": "打开文件", "note": "" },
+          { "key": "Ctrl + S", "function": "保存文件", "note": "" },
+          { "key": "Ctrl + N", "function": "新建文件", "note": "" },
+          { "key": "Ctrl + Z", "function": "撤销", "note": "" },
+          { "key": "Ctrl + Q", "function": "退出Blender", "note": "" },
+          { "key": "Ctrl + Spacebar", "function": "切换区域最大化", "note": "" },
+          { "key": "Ctrl + PageUp", "function": "切换到上一个工作区", "note": "" },
+          { "key": "Ctrl + PageDown", "function": "切换到下一个工作区", "note": "" },
+          { "key": "Ctrl + Tab", "function": "切换模式饼菜单", "note": "在3D视图中显示模式切换菜单" }
+        ]
+      },
+      {
+        "modifier_keys": "shift",
+        "mode": "global",
+        "selection_state": "any",
+        "shortcuts": [
+          { "key": "Shift + Spacebar", "function": "播放动画", "note": "当空格键设为'工具'或'搜索'时" }
+        ]
+      },
+      {
+        "modifier_keys": "ctrl_shift",
+        "mode": "global",
+        "selection_state": "any",
+        "shortcuts": [
+          { "key": "Shift + Ctrl + Z", "function": "重做", "note": "" },
+          { "key": "Shift + Ctrl + Spacebar", "function": "倒放动画", "note": "" }
+        ]
+      },
+      {
+        "modifier_keys": "none",
+        "mode": "common_editor",
+        "selection_state": "any",
+        "shortcuts": [
+          { "key": "A", "function": "全选", "note": "在3D视图、UV编辑器等中通用" },
+          { "key": "T", "function": "切换工具栏", "note": "显示或隐藏左侧工具栏" },
+          { "key": "N", "function": "切换侧栏", "note": "显示或隐藏右侧属性面板" },
+          { "key": "H", "function": "隐藏选中项", "note": "" },
+          { "key": "X", "function": "删除（需确认）", "note": "弹出确认对话框" },
+          { "key": "Delete", "function": "删除（不需确认）", "note": "直接删除" }
+        ]
+      },
+      {
+        "modifier_keys": "alt",
+        "mode": "common_editor",
+        "selection_state": "any",
+        "shortcuts": [
+          { "key": "Alt + A", "function": "取消全选", "note": "" },
+          { "key": "Alt + H", "function": "显示隐藏项", "note": "恢复所有被隐藏的物体或元素" }
+        ]
+      },
+      {
+        "modifier_keys": "ctrl",
+        "mode": "common_editor",
+        "selection_state": "any",
+        "shortcuts": [
+          { "key": "Ctrl + I", "function": "反选", "note": "" }
+        ]
+      },
+      {
+        "modifier_keys": "shift",
+        "mode": "common_editor",
+        "selection_state": "any",
+        "shortcuts": [
+          { "key": "Shift + H", "function": "隐藏未选中项", "note": "" }
+        ]
+      },
+      {
+        "modifier_keys": "none",
+        "mode": "3d_viewport",
+        "selection_state": "any",
+        "shortcuts": [
+          { "key": "` (反引号)", "function": "显示3D视图导航饼菜单", "note": "快速切换视角" },
+          { "key": "Numpad 1", "function": "前视图（正交）", "note": "" },
+          { "key": "Numpad 3", "function": "右视图（正交）", "note": "" },
+          { "key": "Numpad 7", "function": "顶视图（正交）", "note": "" },
+          { "key": "Numpad 5", "function": "切换正交/透视视图", "note": "" },
+          { "key": "Numpad 0", "function": "切换到摄像机视角", "note": "" },
+          { "key": "Numpad .", "function": "聚焦选中物体或元素", "note": "" },
+          { "key": "Home", "function": "显示场景中所有物体", "note": "重置视图以显示全部内容" }
+        ]
+      },
+      {
+        "modifier_keys": "ctrl",
+        "mode": "3d_viewport",
+        "selection_state": "any",
+        "shortcuts": [
+          { "key": "Ctrl + ` (反引号)", "function": "切换Gizmo（操纵器）显示", "note": "显示或隐藏变换轴" },
+          { "key": "Ctrl + Numpad 1", "function": "后视图（正交）", "note": "" },
+          { "key": "Ctrl + Numpad 3", "function": "左视图（正交）", "note": "" },
+          { "key": "Ctrl + Numpad 7", "function": "底视图（正交）", "note": "" }
+        ]
+      },
+      {
+        "modifier_keys": "shift",
+        "mode": "3d_viewport",
+        "selection_state": "any",
+        "shortcuts": [
+          { "key": "Shift + ` (反引号)", "function": "开始步行/飞行导航", "note": "进入自由视角漫游模式" }
+        ]
+      },
+      {
+        "modifier_keys": "none",
+        "mode": "object",
+        "selection_state": "selected",
+        "shortcuts": [
+          { "key": "G", "function": "移动 (Grab)", "note": "按X/Y/Z可锁定轴向" },
+          { "key": "R", "function": "旋转 (Rotate)", "note": "按X/Y/Z可锁定轴向" },
+          { "key": "S", "function": "缩放 (Scale)", "note": "按X/Y/Z可锁定轴向" }
+        ]
+      },
+      {
+        "modifier_keys": "shift",
+        "mode": "object",
+        "selection_state": "any",
+        "shortcuts": [
+          { "key": "Shift + A", "function": "添加物体", "note": "弹出添加菜单" }
+        ]
+      },
+      {
+        "modifier_keys": "shift",
+        "mode": "object",
+        "selection_state": "selected",
+        "shortcuts": [
+          { "key": "Shift + D", "function": "复制物体", "note": "复制并进入移动模式" },
+          { "key": "Alt + D", "function": "关联复制", "note": "创建关联副本，修改联动" }
+        ]
+      },
+      {
+        "modifier_keys": "ctrl",
+        "mode": "object",
+        "selection_state": "selected",
+        "shortcuts": [
+          { "key": "Ctrl + J", "function": "合并物体", "note": "将多个选中物体合并为一个" },
+          { "key": "Ctrl + P", "function": "设置父级", "note": "建立父子关系" },
+          { "key": "Ctrl + A", "function": "应用变换", "note": "将变换值应用到模型数据" }
+        ]
+      },
+      {
+        "modifier_keys": "alt",
+        "mode": "object",
+        "selection_state": "selected",
+        "shortcuts": [
+          { "key": "Alt + G", "function": "重置位置", "note": "位置归零" },
+          { "key": "Alt + R", "function": "重置旋转", "note": "旋转归零" },
+          { "key": "Alt + S", "function": "重置缩放", "note": "缩放归1" },
+          { "key": "Alt + P", "function": "清除父级", "note": "解除父子关系" }
+        ]
+      },
+      {
+        "modifier_keys": "none",
+        "mode": "edit",
+        "selection_state": "any",
+        "shortcuts": [
+          { "key": "1", "function": "切换到顶点选择模式", "note": "" },
+          { "key": "2", "function": "切换到边选择模式", "note": "" },
+          { "key": "3", "function": "切换到面选择模式", "note": "" }
+        ]
+      },
+      {
+        "modifier_keys": "none",
+        "mode": "edit",
+        "selection_state": "selected",
+        "shortcuts": [
+          { "key": "E", "function": "挤出 (Extrude)", "note": "从选中的点/线/面挤出" },
+          { "key": "I", "function": "内插面 (Inset)", "note": "在选中面内部插入面" },
+          { "key": "F", "function": "填充/生成面", "note": "从选中的边创建面" },
+          { "key": "K", "function": "切割工具 (Knife)", "note": "手动切割模型" },
+          { "key": "M", "function": "合并顶点 (Merge)", "note": "将选中顶点合并" },
+          { "key": "V", "function": "断开顶点 (Rip)", "note": "将顶点从边上断开" },
+          { "key": "P", "function": "分离 (Separate)", "note": "将选中部分分离为新物体" },
+          { "key": "L", "function": "选择相连元素", "note": "选择与当前元素相连的所有元素" }
+        ]
+      },
+      {
+        "modifier_keys": "ctrl",
+        "mode": "edit",
+        "selection_state": "selected",
+        "shortcuts": [
+          { "key": "Ctrl + B", "function": "倒角 (Bevel)", "note": "为边或顶点添加倒角" },
+          { "key": "Ctrl + R", "function": "环切 (Loop Cut)", "note": "添加循环边" },
+          { "key": "Ctrl + E", "function": "边菜单", "note": "包含桥接循环边等操作" },
+          { "key": "Ctrl + N", "function": "重新计算法线（外部）", "note": "修正面的朝向" }
+        ]
+      },
+      {
+        "modifier_keys": "alt",
+        "mode": "edit",
+        "selection_state": "selected",
+        "shortcuts": [
+          { "key": "Alt + E", "function": "挤出菜单", "note": "包含多种挤出方式" }
+        ]
+      },
+      {
+        "modifier_keys": "ctrl_shift",
+        "mode": "edit",
+        "selection_state": "selected",
+        "shortcuts": [
+          { "key": "Shift + Ctrl + N", "function": "重新计算法线（内部）", "note": "修正面的朝向" }
+        ]
+      }
+    ]
+  }
+}
