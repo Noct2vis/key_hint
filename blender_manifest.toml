@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "key_hint"
-version = "1.0.4"
+version = "1.0.5"
 name = "Key Hint"
 tagline = "Flowkeys-style shortcut reference synced to your keymap"
 maintainer = "Noct2vis <rv24726@bristol.ac.uk>"

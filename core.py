@@ -43,7 +43,7 @@ def _blender_at_least(major, minor, patch=0):
 
 # How often to rescan keyconfig + redraw the HUD.
 _RESCAN_INTERVAL = 1.0
-_REDRAW_SECS = 0.1
+_REDRAW_SECS = 0.3
 
 _running = False
 
@@ -70,6 +70,10 @@ _held_mods = set()
 _dragging = False
 _drag_dx = 0.0
 _drag_dy = 0.0
+
+# Timestamp of the last event the watch modal actually received; used to
+# detect a dead modal (Blender can silently drop it) and re-arm it.
+_last_modal_evt_ts = 0.0
 
 
 def is_running():
@@ -171,6 +175,13 @@ def _redraw_loop():
         return None
     try:
         _scan_if_needed()
+        # Dead-modal watchdog: if the watch modal was registered but has not
+        # seen any event for a while, Blender dropped it - reset the flag so
+        # _ensure_watch_modal() re-invokes it.
+        if KeyHintWatchOperator._added and \
+                (time.time() - _last_modal_evt_ts) > 0.6:
+            KeyHintWatchOperator._added = False
+            KeyHintWatchOperator._timer = None
         _ensure_watch_modal()
         for win in bpy.context.window_manager.windows:
             for area in win.screen.areas:
@@ -295,11 +306,13 @@ class KeyHintWatchOperator(bpy.types.Operator):
 
     def modal(self, context, event):
         global _active_op, _active_op_since, _dragging, _drag_dx, _drag_dy
-        global _held_mods
+        global _held_mods, _last_modal_evt_ts
 
         if not _running:
             self._stop(context)
             return {"FINISHED"}
+
+        _last_modal_evt_ts = time.time()
 
         evt_type = getattr(event, "type", None)
         value = getattr(event, "value", None)
