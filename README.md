@@ -1,122 +1,124 @@
 # Key Hint
 
-一个为 Blender 打造的开源插件：在**侧边栏（N 面板）**和 **3D 视口 HUD** 中，展示
-**你自己维护的一份「快捷键清单」**——每一行是「左侧=功能名、右侧=按键」。
+一个为 Blender 打造的开源快捷键参考插件。它在**侧边栏（N 面板）**和 **3D 视口 HUD**
+里显示快捷键，每一行 =「左侧功能名、右侧按键」，按键尽量与你**真实的键位(keyconfig)**
+一致。
 
-它不再只读扫描键位，而是给你一份**全局自定义清单**：侧栏里可自由增删；3D 视口的
-HUD 显示的是**同一份清单**（按当前模式过滤后、再按修饰键分组），所见即所配。
+## 核心思路（两表）
+
+- **默认内容（A）**：一份 curated 清单（`content.py`，取自常用建模操作），是“匹配项”：
+  每条定义 功能名、属于哪个模式、是否需要选中。默认就显示这些（不会把整张 keymap 全塞
+  进去）。
+- **数据库（B）**：你当前 keyconfig 的真实绑定。真正显示的**修饰键 + 按键由 B 回填**：
+  内容条目带 `op` 的，运行时会从 keyconfig 读它的真实绑定来显示（改键即随）；没有 `op`
+  或读不到的条目显示文档默认键。
+- 侧栏可把 **B 里的条目搜出来“加入”**（加入会持久化），也可 × 把某条从“我的快捷键”隐藏。
 
 ## 特性
 
-- **我的快捷键**：一行一条「功能名 + 按键」，按修饰键分组显示：
-  **无按键 / Ctrl / Shift / Alt / 其他组合**。
-- **可编辑清单**：
-  - 「添加」在清单**末尾追加**一行（功能名 / 按键 / Ctrl·Shift·Alt / 显示范围）；
-  - 「删除」把那一行**整行移除**（不会留下空位）；
-  - 允许清单为 **0 条**。
-- **全局存储**：清单存在**用户配置目录**的一个 JSON（`key_hint/shortcuts.json`），
-  所有 `.blend` 工程共用，不随文件保存。
-- **默认清单**：首次使用自动写入一份默认条目，取自 **Kurt 的 Blender 零基础入门教程**
-  建模篇里讲到的基本按键（G 移动 / R 旋转 / S 缩放 / Shift+A 新建 / Tab 编辑 /
-  E 挤出 / Ctrl+R 环切 / 数字键视图切换 / …），之后随你增删；也提供「恢复 Kurt 默认」。
-- **3D 视口 HUD（默认右下角）**：显示**同一份**清单——只显示适合当前模式的条目
-  （显示范围=物体/编辑/所有），再按 无按键/Ctrl/Shift/Alt 分组。可拖动、可锁定：
-  拖**标题栏**移动，点标题栏右侧 **解锁/锁定** 切换，锁定后不可移动。
+- **我的快捷键**：按修饰键分组显示（无按键 / Ctrl / Shift / Alt / 组合），默认=curated
+  内容；每行 功能名 | 按键 + **×** 隐藏。
+- **搜索（在“我的快捷键”上方）**：一个输入框 + 下拉（按功能名 / 按按键）。它同时
+  1) 过滤“我的快捷键”里显示的条目；2) 把 **B(keyconfig)** 里匹配、且还没显示的条目列成
+  「加入」，点一下加入并持久化。
+- **同步数据库**：按钮/启动时从 keyconfig 回填真实键，并刷新候选池。
+- **恢复默认显示**：把“我的快捷键”重置为默认 curated 内容。
+- **3D 视口 HUD（默认右下角）**：基于 key 检测实时显示——没按修饰键=基础组、按住
+  Shift/Ctrl/Alt=对应组、按 G/R/S/E/I 等=该操作的后续子键；并受**当前模式**与**是否选中
+  物体/点线面**影响（`selected` 条目）。可拖动标题栏、可锁定。
+- 不再有“是否显示 Key Hint”开关（启用即常开，关闭去 Preferences）。
 - 开源 (GPL-3.0)，纯 Blender Python，无第三方运行期依赖。
 
 ## 安装
 
 1. 下载本仓库（或 `Releases` 里的 zip）。
-2. Blender 菜单：`Edit > Preferences > Add-ons > Install…`，选中 zip 后启用 **Key Hint**。
-   - 若用仓库文件夹安装：把整个 `key_hint` 文件夹放到你的
-     `scripts/addons/` 目录下，然后在插件列表里勾选。
-   - **覆盖安装旧版本前**：先取消勾选 / Remove 旧版（或重启 Blender），避免旧模块缓存
-     造成 `has no attribute` 之类报错。
+2. Blender：`Edit > Preferences > Add-ons > Install…`，选中 zip 后启用 **Key Hint**。
+   - 仓库文件夹安装：把整个 `key_hint` 放进 `scripts/addons/`，在插件列表勾选。
+   - **覆盖安装旧版本前**：先 Remove/关闭旧版（或重启），避免旧模块缓存报错。
+
+命令行安装（若用 `blender --command`）：
+
+```bash
+blender --command extension install-file --repo user_default key_hint-2.0.1.zip
+```
 
 ## 使用
 
-- 默认 **自动开启**（Preferences → Add-ons → Key Hint → “Auto start with Blender”）。
-- **侧边栏**：`N` → **Key Hint**。顶部是开启开关与「+ 添加」；下面按修饰键分组列出你的
-  清单，每行右侧的 **×** 即删除该行。
-- **HUD**（默认开启）：位于 **3D 视口右下角**，与侧栏同一份清单，按当前模式过滤分组。
-- 偏好设置（`Preferences → Add-ons → Key Hint`）：
-  - 随 Blender 启动自动开启（auto start）
-  - 是否显示 HUD（Show HUD in 3D viewport）
-  - 锁定 HUD 位置（Lock HUD）
-  - 偏移（offset X / offset Y，距右/距下像素）
-  - 字号、透明度、颜色
+- **侧边栏**：3D 视口按 `N` → **Key Hint**。
+  - 顶部：`同步数据库` / `恢复默认显示`。
+  - 搜索栏：输入即过滤“我的快捷键”，同时给出 **B** 里可“加入”的条目。
+  - “我的快捷键”：按修饰键分组，每行右侧 **×** 隐藏。
+- **HUD**：默认开启，右下角；拖动标题栏移动、右侧锁定/解锁。物体/编辑切换、是否选中、
+  是否按住 Shift/Ctrl/Alt、是否按了 G/R/S/E/I，都会改变显示内容。
+- 偏好设置（`Preferences → Add-ons → Key Hint`）：自动开启、显示 HUD、锁定、偏移、字号/
+  透明度/颜色等。
 
-## 数据文件
+## 数据文件（用户配置目录 `.../key_hint/`）
 
-默认清单存储在：
-
-```
-<用户配置目录>/key_hint/shortcuts.json
-```
-
-（Windows 通常是 `C:\Users\<你>\AppData\Roaming\Blender Foundation\Blender\<版本>\...`，
-由 `bpy.utils.user_resource("CONFIG", path="key_hint")` 决定。Blender 侧栏的 Key Hint
-面板里也有「恢复 Kurt 默认」，可一键重置。）
+- `shown.json`：“我的快捷键”里当前显示哪些(rid 顺序)——你的增删。
+- `extras.json`：你从 B 加入并持久化的条目。
+- `b_database.json`：可选，维护脚本同步出的 B 快照（runtime 优先读真实 keyconfig）。
 
 ## 诊断
 
-在 Blender Python Console（或 Text Editor）运行：
+Blender Python Console：
 
 ```python
-import sys
-sys.path.insert(0, r"D:/blender")        # key_hint 文件夹的上一级
-import key_hint.tests.diagnose as d
-d.run()
+import sys; sys.path.insert(0, r"D:/blender")
+import key_hint; print(key_hint.core.is_running())
 ```
-
-会打印模式、keyconfig、HUD 句柄等，方便定位“不显示”的问题。
-
-> **想确认它到底有没有在跑？** 在 Python Console 输入
-> `import key_hint; key_hint.core.is_running()`。返回 `True` 说明 HUD 在运行。
 
 ## 工作原理 / 技术说明
 
-- **数据**：`store.py` 维护一份全局 JSON 清单，纯函数负责规范化、按修饰键分组、按模式
-  过滤——可无头单测，HUD 与侧栏共用。
-- **显示层**：在 `SpaceView3D` 上注册一个 `POST_PIXEL` draw handler，用模块级
-  `bpy.app.timers` 循环定时 `tag_redraw()` 驱动刷新。中文通过 `blf.load()` 加载系统
-  中文字体显示。
-- **捕获**：一个 `PASS_THROUGH` modal（`key_hint.watch`）读取鼠标做拖动/锁定，
-  `modal()` 一律返回 `{'PASS_THROUGH'}`，绝不拦截 Blender 的快捷键。
-- **坐标**：HUD 命中矩形在 draw 回调里以**窗口坐标**导出，与 `event.mouse_x/y`
-  直接比对，避免 modal 的 region 上下文不一致导致点不中。
+- `engine.py`：纯查询/格式化引擎。一条记录 = {tags(模式)、sel(是否需要选中)、mods、
+  key、name、op、parent(是否某操作后的子键)}；`active_tags(mode, space)` 解析当前标签；
+  `query/match_record` 按 **模式 × 选中 × 父操作 × 按住修饰键** 过滤分组。无 bpy，可单测。
+- `content.py`：curated 默认内容（Kurt/常用清单），转成带稳定 rid 的记录。
+- `library.py`：两表纯逻辑 —— rid、默认显示、增/删/切换、搜索、分组、A 持久化。
+- `builder.py`：数据库 B —— 读活动 keyconfig 全量(键盘+鼠标+特殊键+modal 子键)映射成
+  记录；`real_binding_for(op)` 回填某算子的真实键。GUI 才有数据。
+- `runtime.py`：运行时状态 —— A(默认内容+从 B 加入)、B(候选池)；惰性加载、同步回填
+  真实键、持久化 A/extras。
+- `core.py` + `draw.py`：HUD 生命周期、PASS_THROUGH watch modal(按键/修饰键/操作键/
+  拖动/锁定)、POST_PIXEL 绘制；payload 用 engine/runtime 的上下文查询。中文用 `blf`
+  加载系统中文字体。
+- `panels.py`：侧栏（搜索/过滤 + 从 B 加入 + 分组显示 + 隐藏/恢复默认 + 同步）。
 
 ## 目录结构
 
 ```
 key_hint/
-  __init__.py   注册入口 (bl_info / register / unregister)
+  __init__.py   注册入口 (bl_info / register / unregister / reload)
   prefs.py      插件偏好设置
-  store.py      全局 JSON 存储 + Kurt 默认清单 + 分组/过滤/序列化纯函数
-  panels.py     侧边栏 N 面板：可编辑的“我的快捷键”清单（添加/删除/恢复默认）
-  core.py       HUD 生命周期、watch modal（拖动/锁定）、payload 组装（读 store）
-  draw.py       3D 视口 HUD 绘制（POST_PIXEL，中文字体，分组标题）
-  hints.py      遗留的 keymap 扫描辅助（模式推断仍被 core 使用）
-  constants.py  遗留的键位/上下文数据（暂保留）
-  tests/        无头逻辑测试与诊断脚本
+  engine.py     纯查询/格式化引擎（模式×选中×修饰键×操作键，分组）
+  content.py    curated 默认内容（A 的默认；Kurt/常用清单）
+  library.py    两表纯逻辑（rid、增删、搜索、分组、A 持久化）
+  builder.py    数据库 B：读 keyconfig 全量 + real_binding_for 回填真实键
+  runtime.py    运行时状态（A 显示集 + B 候选池、同步、持久化）
+  panels.py     侧栏 N 面板（搜索/从 B 加入/分组显示）
+  core.py       HUD 生命周期、watch modal、payload（engine/runtime）
+  draw.py       HUD 绘制（POST_PIXEL，中文字体）
+  data/blender_default.json  官方中文键位表（备用种子/参考）
+  hints.py / constants.py    旧版遗留（暂保留，界面已不使用核心显示）
+  store.py      旧版遗留（暂保留）
+  tests/        无头逻辑测试
 ```
 
 ## 版权与致谢
 
-- 本项目采用 **GPL-3.0-only**（见仓库顶部 [LICENSE](LICENSE)）。
-- 捕获/绘制架构思路参考 **Screencast Keys**（[nutti/Screencast-Keys](https://github.com/nutti/Screencast-Keys)，
-  GPL-2.0-or-later）、**Shortcut VUr**（GPL-3.0）与 Blender 官方
-  `space_view3d_math_vis`（GPL-2.0-or-later）。本项目代码为原创编写，未复制其代码。
-- 默认快捷键清单取自 **Kurt 的 Blender 零基础入门教程**公开讲解的建模基本按键。
+- **GPL-3.0-only**（见仓库顶部 [LICENSE](LICENSE)）。
+- 捕获/绘制架构思路参考 **Screencast Keys**（GPL-2.0-or-later）、**Shortcut VUr**（GPL-3.0）
+  与 Blender 官方 `space_view3d_math_vis`（GPL-2.0-or-later）。代码为原创编写。
+- 默认内容(部分功能名)参考 **Kurt 的 Blender 零基础入门教程**公开讲解的建模基本操作。
 - 界面与文档为中文。
 
 ## 开发
 
-单元/逻辑测试（可在无 GUI 的 `--background` 下运行）：
+无头注册 + 纯逻辑测试（真实 keymap 读取仅 GUI 生效）：
 
 ```bash
 blender --background --factory-startup --python tests/test_logic.py
 ```
 
-> 说明：HUD 的可视层（绘制、拖动、锁定、命中）依赖真实 GPU/窗口会话，`--background`
-> 只能验证注册与纯逻辑。可视行为请在正常图形界面下验证。
+> HUD 可视层(绘制/拖动/锁定/命中)与数据库 B 的真实键读取依赖真实 GPU/窗口会话，
+> `--background` 只能验证注册与纯逻辑；请在正常图形界面下验证。
