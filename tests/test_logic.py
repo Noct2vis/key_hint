@@ -36,6 +36,7 @@ import key_hint  # noqa: E402
 from key_hint import hints  # noqa: E402
 from key_hint import store  # noqa: E402
 from key_hint import core  # noqa: E402
+from key_hint import keymaps  # noqa: E402
 from key_hint import engine  # noqa: E402
 from key_hint import library  # noqa: E402
 from key_hint import builder  # noqa: E402
@@ -417,6 +418,42 @@ def main():
           len(a_def) == len(cc2) and a_def[0] == cc2[0]["rid"])
     # decouple: these are A content independent of the big keyconfig DB
     check("content independent rids distinct", len(set(a_def)) == len(a_def))
+
+    # 16. modifier-key event source (keymaps.py) -> core held state.
+    core._held_mods = set()
+    check("mod press adds ctrl",
+          core.note_modifier_key("LEFT_CTRL", "PRESS")
+          and core._held_mods == {"ctrl"})
+    check("mod repeat press is a no-op",
+          core.note_modifier_key("RIGHT_CTRL", "PRESS") is False
+          and core._held_mods == {"ctrl"})
+    core.note_modifier_key("LEFT_SHIFT", "PRESS")
+    check("mod combination", core._held_mods == {"ctrl", "shift"})
+    check("mod release removes only its own",
+          core.note_modifier_key("RIGHT_CTRL", "RELEASE")
+          and core._held_mods == {"shift"})
+    check("mod repeat release is a no-op",
+          core.note_modifier_key("LEFT_CTRL", "RELEASE") is False)
+    check("mod non-modifier key ignored",
+          core.note_modifier_key("A", "PRESS") is False)
+    check("mod bogus value ignored",
+          core.note_modifier_key("LEFT_SHIFT", "CLICK") is False)
+    check("mod both sides map to one attr",
+          core.mod_attr_for_event("RIGHT_ALT") == "alt"
+          and core.mod_attr_for_event("OSKEY") == "oskey"
+          and core.mod_attr_for_event("LEFT_SHIFT") == "shift")
+    core._held_mods = set()
+
+    # 17. keymap bindings register / unregister cleanly, and are idempotent.
+    made = keymaps.register()
+    per_km = len(keymaps.MODIFIER_KEYS) * len(keymaps.VALUES)
+    check("keymap bindings registered",
+          bool(made) and all(n == per_km for _name, n in made))
+    check("keymap bindings idempotent", keymaps.register() == [])
+    check("keymap bindings attached", keymaps.is_registered())
+    keymaps.unregister()
+    check("keymap bindings removed",
+          not keymaps.is_registered() and keymaps._items == [])
 
     print("\n%d failures" % len(_failures))
     return 1 if _failures else 0

@@ -37,6 +37,7 @@ from . import content
 from . import builder
 from . import runtime
 from . import core
+from . import keymaps
 from . import draw
 from . import panels
 
@@ -46,7 +47,7 @@ def _reload_submodules():
     addon version) never surfaces."""
     import importlib
     global prefs, hints, constants, engine, library, content, builder, runtime
-    global core, draw, panels
+    global core, keymaps, draw, panels
     prefs = importlib.reload(prefs)
     hints = importlib.reload(hints)
     constants = importlib.reload(constants)
@@ -56,6 +57,7 @@ def _reload_submodules():
     builder = importlib.reload(builder)
     runtime = importlib.reload(runtime)
     core = importlib.reload(core)
+    keymaps = importlib.reload(keymaps)
     draw = importlib.reload(draw)
     panels = importlib.reload(panels)
 
@@ -63,7 +65,7 @@ def _reload_submodules():
 bl_info = {
     "name": "Key Hint",
     "author": "Noct2vis",
-    "version": (2, 0, 1),
+    "version": (2, 0, 2),
     "blender": (3, 0, 0),
     "location": "3D Viewport > Sidebar > Key Hint",
     "description": (
@@ -93,18 +95,27 @@ def register():
     _register_class(core.KeyHintCaptureOperator)
     _register_class(core.KeyHintRestartOperator)
     _register_class(core.KeyHintWatchOperator)
+    _register_class(keymaps.KeyHintModifierWatchOperator)
     core.register_enable_property()
     core.register_app_handlers()
+    # Modifier keys' own PRESS/RELEASE bindings: the source that makes the HUD
+    # switch the moment a modifier goes down (see keymaps.py).
+    keymaps.register()
     core.register_auto_start()
 
 
 def unregister():
     core.stop(verbose=False)
+    keymaps.unregister()
     core.unregister_auto_start()
     core.unregister_app_handlers()
     core.unregister_enable_property()
     try:
         bpy.utils.unregister_class(core.KeyHintWatchOperator)
+    except RuntimeError:
+        pass
+    try:
+        bpy.utils.unregister_class(keymaps.KeyHintModifierWatchOperator)
     except RuntimeError:
         pass
     try:

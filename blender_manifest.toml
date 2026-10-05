@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "key_hint"
-version = "2.0.1"
+version = "2.0.2"
 name = "Key Hint"
 tagline = "Your own shortcut list, mirrored by a 3D-viewport HUD"
 maintainer = "Noct2vis <rv24726@bristol.ac.uk>"
@@ -20,3 +20,21 @@ website = "https://github.com/Noct2vis/key_hint"
 
 # Runtime dependencies of this add-on.
 python_version = ""
+
+# Packaging: ship the add-on itself and nothing else.
+#
+# NOTE: as soon as [build].paths_exclude_pattern is set, the builder's OWN
+# default excludes (.git/**, __pycache__, *.pyc, ...) no longer apply — the
+# list below replaces them, so the defaults are repeated here on purpose.
+# AGENTS.md / docs/ are this repo's agent/skill scaffolding (issue tracker,
+# triage labels, domain docs): they belong in the repository, not in the
+# extension users install.
+[build]
+paths_exclude_pattern = [
+  ".*",             # dot-prefixed files/dirs: .git, .gitignore, .scratch, ...
+  "*__pycache__*",  # bytecode dirs at any depth
+  "*.pyc",
+  "*.zip",          # build outputs, so a rebuild can't package the previous one
+  "AGENTS.md",
+  "docs/**",
+]

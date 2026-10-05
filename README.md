@@ -25,7 +25,8 @@
 - **恢复默认显示**：把“我的快捷键”重置为默认 curated 内容。
 - **3D 视口 HUD（默认右下角）**：基于 key 检测实时显示——没按修饰键=基础组、按住
   Shift/Ctrl/Alt=对应组、按 G/R/S/E/I 等=该操作的后续子键；并受**当前模式**与**是否选中
-  物体/点线面**影响（`selected` 条目）。可拖动标题栏、可锁定。
+  物体/点线面**影响（`selected` 条目）。可拖动标题栏、可锁定。按下/松开修饰键（左右
+  Ctrl/Shift/Alt/OS）的**同一时刻**即切换分组，不必先移动鼠标或点击窗口（2.0.2 修复）。
 - 不再有“是否显示 Key Hint”开关（启用即常开，关闭去 Preferences）。
 - 开源 (GPL-3.0)，纯 Blender Python，无第三方运行期依赖。
 
@@ -39,7 +40,7 @@
 命令行安装（若用 `blender --command`）：
 
 ```bash
-blender --command extension install-file --repo user_default key_hint-2.0.1.zip
+blender --command extension install-file --repo user_default key_hint-2.0.2.zip
 ```
 
 ## 使用
@@ -79,9 +80,12 @@ import key_hint; print(key_hint.core.is_running())
   记录；`real_binding_for(op)` 回填某算子的真实键。GUI 才有数据。
 - `runtime.py`：运行时状态 —— A(默认内容+从 B 加入)、B(候选池)；惰性加载、同步回填
   真实键、持久化 A/extras。
+- `keymaps.py`：给左右 Ctrl/Shift/Alt/OS **自身**的按下/松开登记 keymap 绑定（`any=True`，
+  命中后 PASS_THROUGH 原样放行、不吞事件），是「按住修饰键 → HUD 立刻切换」的主力来源。
 - `core.py` + `draw.py`：HUD 生命周期、PASS_THROUGH watch modal(按键/修饰键/操作键/
   拖动/锁定)、POST_PIXEL 绘制；payload 用 engine/runtime 的上下文查询。中文用 `blf`
-  加载系统中文字体。
+  加载系统中文字体。另有一颗**心跳 WM 定时器**——Python 定时器不会唤醒空闲的主循环，
+  心跳让重绘链路不再依赖 watch modal 是否存活。
 - `panels.py`：侧栏（搜索/过滤 + 从 B 加入 + 分组显示 + 隐藏/恢复默认 + 同步）。
 
 ## 目录结构
@@ -96,6 +100,7 @@ key_hint/
   builder.py    数据库 B：读 keyconfig 全量 + real_binding_for 回填真实键
   runtime.py    运行时状态（A 显示集 + B 候选池、同步、持久化）
   panels.py     侧栏 N 面板（搜索/从 B 加入/分组显示）
+  keymaps.py    修饰键自身的 PRESS/RELEASE 绑定（HUD 实时切换的事件源）
   core.py       HUD 生命周期、watch modal、payload（engine/runtime）
   draw.py       HUD 绘制（POST_PIXEL，中文字体）
   data/blender_default.json  官方中文键位表（备用种子/参考）

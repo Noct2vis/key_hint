@@ -285,6 +285,59 @@ def _draw_callback_px():
     hud_draw.draw_hud(region, prefs, payload)
 
 
+def _tag_view3d_redraw():
+    """Tag every 3D viewport for redraw. Best-effort: never raises."""
+    try:
+        for win in bpy.context.window_manager.windows:
+            for area in win.screen.areas:
+                if area.type == "VIEW_3D":
+                    area.tag_redraw()
+    except Exception:                       # noqa: BLE001
+        pass
+
+
+# Heartbeat: a WM event timer whose only job is to keep Blender's main loop
+# awake.  A bpy.app.timers callback does NOT schedule a wake-up by itself -
+# Blender only services those callbacks on an iteration of the main loop - so
+# an idle window would never run _redraw_loop() at all, and the HUD would sit
+# frozen until some other input woke the loop.  (Observed in the wild: with
+# animation playback forcing continuous redraws the HUD tracks the keyboard
+# again; idle, it does not.)  The watch modal used to supply that wake-up as a
+# side effect of its own 0.1s timer, which is why the HUD died whenever Blender
+# dropped the modal - this makes the wake-up independent of the modal.
+_HEARTBEAT_SECS = _REDRAW_SECS
+_heartbeat = None
+
+
+def _ensure_heartbeat():
+    global _heartbeat
+    if not _running or _heartbeat is not None:
+        return
+    wm = getattr(bpy.context, "window_manager", None)
+    win = getattr(bpy.context, "window", None)
+    if win is None:
+        wins = getattr(wm, "windows", None) if wm is not None else None
+        win = wins[0] if wins else None
+    if wm is None or win is None:
+        return
+    try:
+        _heartbeat = wm.event_timer_add(_HEARTBEAT_SECS, window=win)
+    except Exception as exc:                # noqa: BLE001
+        _heartbeat = None
+        print("[Key Hint] heartbeat timer failed:", exc)
+
+
+def _drop_heartbeat():
+    global _heartbeat
+    if _heartbeat is None:
+        return
+    try:
+        bpy.context.window_manager.event_timer_remove(_heartbeat)
+    except Exception:                       # noqa: BLE001
+        pass
+    _heartbeat = None
+
+
 def _redraw_loop():
     if not _running:
         return None
@@ -298,13 +351,52 @@ def _redraw_loop():
             KeyHintWatchOperator._added = False
             KeyHintWatchOperator._timer = None
         _ensure_watch_modal()
-        for win in bpy.context.window_manager.windows:
-            for area in win.screen.areas:
-                if area.type == "VIEW_3D":
-                    area.tag_redraw()
+        _ensure_heartbeat()
+        _tag_view3d_redraw()
     except Exception:                       # noqa: BLE001
         pass
     return _REDRAW_SECS
+
+
+# ---------------------------------------------------------------------------
+# Modifier keys: the fast, event-driven source (keymaps.py) -------------------
+# ---------------------------------------------------------------------------
+_MOD_ATTR_BY_EVENT = {
+    "LEFT_CTRL": "ctrl", "RIGHT_CTRL": "ctrl",
+    "LEFT_SHIFT": "shift", "RIGHT_SHIFT": "shift",
+    "LEFT_ALT": "alt", "RIGHT_ALT": "alt",
+    "OSKEY": "oskey",
+}
+
+
+def mod_attr_for_event(evt_type):
+    """Event type -> held-modifier attribute name, or None if not a modifier."""
+    return _MOD_ATTR_BY_EVENT.get(evt_type or "")
+
+
+def note_modifier_key(evt_type, value):
+    """A modifier key's own PRESS/RELEASE (bound in keymaps.py).
+
+    This is the primary source for "pressing a modifier switches the HUD right
+    away": the watch modal never receives an isolated modifier key-down, so it
+    could only ever react on the next event that happened to pass by.  Returns
+    True when the held set actually changed (and a redraw was requested).
+    """
+    global _held_mods
+    attr = mod_attr_for_event(evt_type)
+    if attr is None or value not in ("PRESS", "RELEASE"):
+        return False
+    if value == "PRESS":
+        if attr in _held_mods:
+            return False
+        _held_mods.add(attr)
+    else:
+        if attr not in _held_mods:
+            return False
+        _held_mods.discard(attr)
+    # Immediate redraw: don't wait for the next _REDRAW_SECS tick.
+    _tag_view3d_redraw()
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -328,14 +420,9 @@ def start(verbose=True):
         _redraw_timer = None
     _running = True
     _ensure_watch_modal()
+    _ensure_heartbeat()
     # Refresh once.
-    try:
-        for win in bpy.context.window_manager.windows:
-            for area in win.screen.areas:
-                if area.type == "VIEW_3D":
-                    area.tag_redraw()
-    except Exception:                        # noqa: BLE001
-        pass
+    _tag_view3d_redraw()
     if verbose:
         print("[Key Hint] started (panel + HUD)")
     return True
@@ -346,6 +433,7 @@ def stop(verbose=True):
     if not _running:
         return True
     _active_op = None
+    _drop_heartbeat()
     if _draw_handle is not None:
         try:
             bpy.types.SpaceView3D.draw_handler_remove(_draw_handle, "WINDOW")
@@ -433,23 +521,33 @@ class KeyHintWatchOperator(bpy.types.Operator):
         value = getattr(event, "value", None)
 
         # --- held modifiers ----------------------------------------------
-        # Rebuild from the event's boolean flags on EVERY event (including the
-        # 0.1s TIMER). Isolated modifier key-down events are NOT dispatched to
-        # a PASS_THROUGH modal, so tracking them via their own PRESS/RELEASE is
-        # unreliable; the boolean flags, however, are set on every event and
-        # reflect the physical state, so the group flips on press and reverts
-        # on release within one timer tick. (Same approach as Screencast Keys.)
-        _held_mods = set()
+        # Two sources, deliberately asymmetric:
+        #   * keymaps.py binds the modifier keys' own PRESS/RELEASE - that is the
+        #     primary, event-driven source (an isolated modifier key-down is NOT
+        #     dispatched to a PASS_THROUGH modal, so this modal can never see it).
+        #   * the boolean flags below are the fallback: they only carry
+        #     information on events that pass by, and a synthesized TIMER event's
+        #     flags are not guaranteed to reflect the physical keys (see issue #01).
+        # So a TIMER may only ADD - never clear - otherwise every 0.1s tick would
+        # wipe the state the keymap path just set. Real input events still decide
+        # both directions, which keeps "release reverts" working as before.
+        flags = set()
         if getattr(event, "ctrl", False):
-            _held_mods.add("ctrl")
+            flags.add("ctrl")
         if getattr(event, "shift", False):
-            _held_mods.add("shift")
+            flags.add("shift")
         if getattr(event, "alt", False):
-            _held_mods.add("alt")
+            flags.add("alt")
         if getattr(event, "oskey", False):
-            _held_mods.add("oskey")
+            flags.add("oskey")
+
         if evt_type == "WINDOW_DEACTIVATE":
-            _held_mods.clear()
+            _held_mods = set()
+        elif evt_type == "TIMER":
+            if flags:
+                _held_mods = set(_held_mods) | flags
+        else:
+            _held_mods = flags
 
         # --- operation hint (fires the moment the operation key is pressed) --
         ctrl = getattr(event, "ctrl", False)
@@ -679,6 +777,10 @@ def _load_post_handler(_dummy):
     _scan_if_needed(force=True)
     register_auto_start()
     _ensure_watch_modal()
+    # Timers are tied to the window manager, which a file load can leave stale:
+    # drop ours and take a fresh one so the main loop keeps being woken.
+    _drop_heartbeat()
+    _ensure_heartbeat()
 
 
 def handle_auto_start_change(self, context):
