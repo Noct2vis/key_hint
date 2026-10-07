@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "key_hint"
-version = "2.0.2"
+version = "2.0.3"
 name = "Key Hint"
 tagline = "Your own shortcut list, mirrored by a 3D-viewport HUD"
 maintainer = "Noct2vis <rv24726@bristol.ac.uk>"

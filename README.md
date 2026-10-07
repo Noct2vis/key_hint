@@ -32,15 +32,18 @@
 
 ## 安装
 
-1. 下载本仓库（或 `Releases` 里的 zip）。
+1. 下载本仓库；或从 [`Releases`](https://github.com/Noct2vis/key_hint/releases/latest) 下载**插件包**
+   （Assets 里名字形如 `key_hint-<版本>.zip` 的那个）。
+   - **别拿错**：Release 页里 GitHub 自动生成的 `Source code (zip)` 内部文件名与插件包相同，
+     但它带 `key_hint-<sha>/` 目录前缀，Blender 装不上。
 2. Blender：`Edit > Preferences > Add-ons > Install…`，选中 zip 后启用 **Key Hint**。
    - 仓库文件夹安装：把整个 `key_hint` 放进 `scripts/addons/`，在插件列表勾选。
    - **覆盖安装旧版本前**：先 Remove/关闭旧版（或重启），避免旧模块缓存报错。
 
-命令行安装（若用 `blender --command`）：
+命令行安装（若用 `blender --command`，文件名换成你实际下载的那个）：
 
 ```bash
-blender --command extension install-file --repo user_default key_hint-2.0.2.zip
+blender --command extension install-file --repo user_default key_hint-2.0.3.zip
 ```
 
 ## 使用
